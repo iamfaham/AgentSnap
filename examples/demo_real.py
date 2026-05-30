@@ -256,6 +256,37 @@ def groq_demo() -> None:
     run_provider("groq", make_client, call_agent)
 
 
+# -- OpenRouter ----------------------------------------------------------------
+
+def openrouter_demo() -> None:
+    key = os.getenv("OPENROUTER_API_KEY")
+    if not key:
+        print("[openrouter] skipped -- OPENROUTER_API_KEY not set")
+        return
+    try:
+        import openai
+        from agentsnap.adapters.openrouter import OpenRouterAdapter, OPENROUTER_BASE_URL
+    except ImportError:
+        print("[openrouter] skipped -- pip install openai")
+        return
+
+    def make_client():
+        return OpenRouterAdapter(
+            openai.OpenAI(api_key=key, base_url=OPENROUTER_BASE_URL)
+        )
+
+    def call_agent(client, tool, query: str) -> str:
+        client.chat.completions.create(
+            model="anthropic/claude-haiku-4-5",
+            max_tokens=100,
+            messages=[{"role": "user", "content": f"Look up: {query}"}],
+        )
+        result = tool(query=query)
+        return f"Answer: {result}"
+
+    run_provider("openrouter", make_client, call_agent)
+
+
 # -- Main ----------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -269,6 +300,7 @@ if __name__ == "__main__":
     cohere_demo()
     mistral_demo()
     groq_demo()
+    openrouter_demo()
 
     header("Done")
     snaps = list(Path(SNAPSHOT_DIR).glob("real_*.json"))

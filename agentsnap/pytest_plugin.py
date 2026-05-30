@@ -5,8 +5,8 @@ from typing import Any, Callable
 
 import pytest
 
-from agenttest.core.asserter import AgentAsserter
-from agenttest.core.recorder import AgentRecorder
+from agentsnap.core.asserter import AgentAsserter
+from agentsnap.core.recorder import AgentRecorder
 
 
 def _find_snapshot_dir(request) -> str:

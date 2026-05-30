@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agenttest.core.diff import compute_diff
-from agenttest.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
-from agenttest.core.snapshot import read_snapshot, write_last_run
-from agenttest.exceptions import AgentRegressionError
+from agentsnap.core.diff import compute_diff
+from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
+from agentsnap.core.snapshot import read_snapshot, write_last_run
+from agentsnap.exceptions import AgentRegressionError
 
 
 class AgentAsserter:

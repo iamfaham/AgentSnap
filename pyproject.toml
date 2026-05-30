@@ -1,5 +1,5 @@
 [project]
-name = "agenttest"
+name = "agentsnap"
 version = "0.1.0"
 description = "Deterministic snapshot testing harness for AI agents"
 readme = "README.md"
@@ -21,10 +21,10 @@ dev = [
 ]
 
 [project.scripts]
-agenttest = "agenttest.cli:main"
+agentsnap = "agentsnap.cli:main"
 
 [project.entry-points."pytest11"]
-agenttest = "agenttest.pytest_plugin"
+agentsnap = "agentsnap.pytest_plugin"
 
 [build-system]
 requires = ["hatchling"]

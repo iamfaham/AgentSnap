@@ -3,11 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from agenttest.adapters.anthropic import AnthropicAdapter
-from agenttest.adapters.tool import ToolAdapter
-from agenttest.core.asserter import AgentAsserter
-from agenttest.core.recorder import AgentRecorder
-from agenttest.exceptions import AgentRegressionError
+from agentsnap.adapters.anthropic import AnthropicAdapter
+from agentsnap.adapters.tool import ToolAdapter
+from agentsnap.core.asserter import AgentAsserter
+from agentsnap.core.recorder import AgentRecorder
+from agentsnap.exceptions import AgentRegressionError
 from tests.fixtures.mock_agents import (
     MockAnthropicClient,
     MockAnthropicResponse,
@@ -182,7 +182,7 @@ def test_different_tool_args_detected(tmp_path):
 
             class _ForcedQueryTool:
                 def __call__(self, **kwargs):
-                    acc = __import__("agenttest.core.recorder", fromlist=["TraceAccumulator"]).TraceAccumulator.current()
+                    acc = __import__("agentsnap.core.recorder", fromlist=["TraceAccumulator"]).TraceAccumulator.current()
                     result = _search_different(query="different_query")
                     if acc:
                         acc.push({"type": "tool_call", "name": "search", "args": {"query": "different_query"}, "result": str(result)})
@@ -200,7 +200,7 @@ def test_different_tool_args_detected(tmp_path):
 
 
 def test_snapshot_not_found_raises(tmp_path):
-    from agenttest.exceptions import SnapshotNotFoundError
+    from agentsnap.exceptions import SnapshotNotFoundError
 
     with pytest.raises(SnapshotNotFoundError):
         with AgentAsserter("no_such_snapshot", snapshot_dir=str(tmp_path)):
@@ -208,7 +208,7 @@ def test_snapshot_not_found_raises(tmp_path):
 
 
 def test_last_run_written_on_assert(tmp_path):
-    from agenttest.core.snapshot import last_run_path
+    from agentsnap.core.snapshot import last_run_path
 
     snapshot_dir = str(tmp_path / "snaps")
     name = "last_run_test"

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agenttest.core.diff import DiffReport
+    from agentsnap.core.diff import DiffReport
 
 
 class AgentRegressionError(Exception):
@@ -39,7 +39,7 @@ class AgentRegressionError(Exception):
 class SnapshotNotFoundError(Exception):
     def __init__(self, test_name: str) -> None:
         super().__init__(
-            f"Snapshot not found for '{test_name}'. Run 'agenttest record' first."
+            f"Snapshot not found for '{test_name}'. Run 'agentsnap record' first."
         )
         self.test_name = test_name
 

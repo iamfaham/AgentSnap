@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from agenttest.core.snapshot import list_snapshots, read_snapshot, write_snapshot
-from agenttest.exceptions import SnapshotNotFoundError
+from agentsnap.core.snapshot import list_snapshots, read_snapshot, write_snapshot
+from agentsnap.exceptions import SnapshotNotFoundError
 
 _TRACE = [
     {

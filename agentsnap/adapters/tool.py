@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agenttest.core.recorder import TraceAccumulator
+from agentsnap.core.recorder import TraceAccumulator
 
 
 class ToolAdapter:

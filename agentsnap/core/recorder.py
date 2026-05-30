@@ -4,7 +4,7 @@ import threading
 from contextvars import ContextVar
 from typing import Any
 
-from agenttest.core.snapshot import write_snapshot
+from agentsnap.core.snapshot import write_snapshot
 
 DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
 

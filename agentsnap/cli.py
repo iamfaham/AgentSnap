@@ -7,15 +7,15 @@ from pathlib import Path
 
 import click
 
-from agenttest.core.snapshot import list_snapshots, last_run_path, snapshot_path
-from agenttest.exceptions import SnapshotNotFoundError
+from agentsnap.core.snapshot import list_snapshots, last_run_path, snapshot_path
+from agentsnap.exceptions import SnapshotNotFoundError
 
 DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
 
 
 @click.group()
 def cli() -> None:
-    """agenttest — deterministic snapshot testing for AI agents."""
+    """agentsnap — deterministic snapshot testing for AI agents."""
 
 
 @cli.command("record")
@@ -65,7 +65,7 @@ def update_cmd(test_name: str, snapshot_dir: str) -> None:
     dst = snapshot_path(test_name, snapshot_dir)
     if not src.exists():
         click.echo(
-            f"No last run found for '{test_name}'. Run 'agenttest run' first.", err=True
+            f"No last run found for '{test_name}'. Run 'agentsnap run' first.", err=True
         )
         raise SystemExit(1)
     shutil.copy2(src, dst)

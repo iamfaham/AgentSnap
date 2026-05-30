@@ -62,7 +62,7 @@ def write_last_run(
 
 
 def read_snapshot(test_name: str, snapshot_dir: str) -> dict:
-    from agenttest.exceptions import SnapshotNotFoundError
+    from agentsnap.exceptions import SnapshotNotFoundError
 
     path = snapshot_path(test_name, snapshot_dir)
     if not path.exists():

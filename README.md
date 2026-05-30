@@ -1,8 +1,8 @@
-# agenttest
+# agentsnap
 
 Deterministic snapshot testing for AI agents.
 
-`agenttest` wraps your agent's LLM and tool calls during a **golden run** to produce a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across three dimensions:
+`agentsnap` wraps your agent's LLM and tool calls during a **golden run** to produce a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across three dimensions:
 
 | Dimension | What it checks |
 |-----------|----------------|
@@ -10,7 +10,7 @@ Deterministic snapshot testing for AI agents.
 | **Arguments** | JSON diff on tool call arguments (configurable ignored fields) |
 | **Semantic** | Cosine similarity of LLM outputs via `all-MiniLM-L6-v2` (default threshold: 0.92) |
 
-If any dimension drifts beyond its threshold, `agenttest` raises `AgentRegressionError` with a structured diff report.
+If any dimension drifts beyond its threshold, `agentsnap` raises `AgentRegressionError` with a structured diff report.
 
 ---
 
@@ -19,16 +19,16 @@ If any dimension drifts beyond its threshold, `agenttest` raises `AgentRegressio
 ### 1 — Install
 
 ```bash
-pip install agenttest
+pip install agentsnap
 ```
 
 ### 2 — Record a golden run
 
 ```python
 # my_agent_test.py
-from agenttest import AgentRecorder
-from agenttest.adapters.anthropic import AnthropicAdapter
-from agenttest.adapters.tool import ToolAdapter
+from agentsnap import AgentRecorder
+from agentsnap.adapters.anthropic import AnthropicAdapter
+from agentsnap.adapters.tool import ToolAdapter
 import anthropic
 
 def search(query: str) -> str:
@@ -52,7 +52,7 @@ Commit the snapshot file to version control.
 ### 3 — Assert on future runs
 
 ```python
-from agenttest import AgentAsserter
+from agentsnap import AgentAsserter
 
 with AgentAsserter("my_agent_test") as asserter:
     result = my_agent(client, search_tool, input="What is Python?")
@@ -142,11 +142,11 @@ Auto-discovers `__agent_snapshots__/` relative to the nearest `conftest.py`.
 ## CLI
 
 ```bash
-agenttest record <test_file>          # run file in record mode
-agenttest run <test_file>             # run file in assert mode
-agenttest diff <snapshot_file>        # pretty-print snapshot
-agenttest update <test_name>          # approve last run as new golden
-agenttest list [--snapshot-dir DIR]   # list all snapshots
+agentsnap record <test_file>          # run file in record mode
+agentsnap run <test_file>             # run file in assert mode
+agentsnap diff <snapshot_file>        # pretty-print snapshot
+agentsnap update <test_name>          # approve last run as new golden
+agentsnap list [--snapshot-dir DIR]   # list all snapshots
 ```
 
 ---
@@ -213,10 +213,10 @@ When you intentionally change agent behavior (new prompt, new tool, new model), 
 pytest tests/test_my_agent.py  # fails with AgentRegressionError
 
 # 2. Inspect the diff
-agenttest diff __agent_snapshots__/my_agent_test.json
+agentsnap diff __agent_snapshots__/my_agent_test.json
 
 # 3. Approve the new behavior
-agenttest update my_agent_test
+agentsnap update my_agent_test
 
 # 4. Commit the updated snapshot
 git add __agent_snapshots__/my_agent_test.json

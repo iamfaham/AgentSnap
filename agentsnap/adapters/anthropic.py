@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from agenttest.core.recorder import TraceAccumulator
+from agentsnap.core.recorder import TraceAccumulator
 
 
-class _CompletionsProxy:
+class _MessagesProxy:
     def __init__(self, original) -> None:
         self._original = original
 
@@ -17,11 +17,14 @@ class _CompletionsProxy:
 
         response_text = ""
         tokens = 0
-        if hasattr(response, "choices") and response.choices:
-            msg = response.choices[0].message
-            response_text = msg.content or ""
+        if hasattr(response, "content"):
+            for block in response.content:
+                if hasattr(block, "text"):
+                    response_text += block.text
         if hasattr(response, "usage"):
-            tokens = getattr(response.usage, "total_tokens", 0)
+            tokens = getattr(response.usage, "input_tokens", 0) + getattr(
+                response.usage, "output_tokens", 0
+            )
 
         acc.push(
             {
@@ -37,20 +40,12 @@ class _CompletionsProxy:
         return getattr(self._original, name)
 
 
-class _ChatProxy:
-    def __init__(self, chat) -> None:
-        self.completions = _CompletionsProxy(chat.completions)
-
-    def __getattr__(self, name: str):
-        return getattr(self._chat, name)
-
-
-class OpenAIAdapter:
-    """Wraps an openai.OpenAI() client to intercept .chat.completions.create()."""
+class AnthropicAdapter:
+    """Wraps an anthropic.Anthropic() client to intercept .messages.create()."""
 
     def __init__(self, client) -> None:
         self._client = client
-        self.chat = _ChatProxy(client.chat)
+        self.messages = _MessagesProxy(client.messages)
 
     def __getattr__(self, name: str):
         return getattr(self._client, name)

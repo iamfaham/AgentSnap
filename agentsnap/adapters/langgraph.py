@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agenttest.core.recorder import TraceAccumulator
+from agentsnap.core.recorder import TraceAccumulator
 
 
 class LangGraphAdapter:

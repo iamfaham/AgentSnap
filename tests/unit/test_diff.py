@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from agenttest.core.diff import (
+from agentsnap.core.diff import (
     DiffReport,
     _cosine_similarity,
     argument_diffs,

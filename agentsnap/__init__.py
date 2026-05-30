@@ -1,6 +1,6 @@
-from agenttest.core.asserter import AgentAsserter
-from agenttest.core.recorder import AgentRecorder
-from agenttest.exceptions import (
+from agentsnap.core.asserter import AgentAsserter
+from agentsnap.core.recorder import AgentRecorder
+from agentsnap.exceptions import (
     AdapterNotWrappedError,
     AgentRegressionError,
     SnapshotNotFoundError,

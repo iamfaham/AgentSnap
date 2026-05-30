@@ -10,8 +10,6 @@ Run:
 
 from __future__ import annotations
 
-import shutil
-import tempfile
 from pathlib import Path
 
 from agentsnap.adapters.anthropic import AnthropicAdapter
@@ -237,21 +235,29 @@ def groq_demo(snapshot_dir: str) -> None:
 # -- Main ----------------------------------------------------------------------
 
 if __name__ == "__main__":
-    with tempfile.TemporaryDirectory() as tmpdir:
-        snap_dir = str(Path(tmpdir) / "snapshots")
+    import argparse
 
-        header("agentsnap mock demo -- no API keys required")
-        print("Snapshot dir:", snap_dir)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--snapshot-dir",
+        default="__agent_snapshots__",
+        help="Where to write snapshots (default: __agent_snapshots__)",
+    )
+    args = parser.parse_args()
+    snap_dir = args.snapshot_dir
 
-        anthropic_demo(snap_dir)
-        openai_demo(snap_dir)
-        gemini_demo(snap_dir)
-        cohere_demo(snap_dir)
-        mistral_demo(snap_dir)
-        groq_demo(snap_dir)
+    header("agentsnap mock demo -- no API keys required")
+    print("Snapshot dir:", snap_dir)
 
-        header("All providers complete")
-        snapshots = list(Path(snap_dir).glob("*.json"))
-        print(f"Snapshots written: {len(snapshots)}")
-        for p in sorted(snapshots):
-            print(f"  {p.name}")
+    anthropic_demo(snap_dir)
+    openai_demo(snap_dir)
+    gemini_demo(snap_dir)
+    cohere_demo(snap_dir)
+    mistral_demo(snap_dir)
+    groq_demo(snap_dir)
+
+    header("All providers complete")
+    snapshots = list(Path(snap_dir).glob("*.json"))
+    print(f"Snapshots written: {len(snapshots)}")
+    for p in sorted(snapshots):
+        print(f"  {p.name}")

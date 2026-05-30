@@ -3,17 +3,17 @@ from __future__ import annotations
 from agentsnap.core.recorder import TraceAccumulator
 
 
-class _CompletionsProxy:
+class _MistralCompletionsProxy:
     def __init__(self, original) -> None:
         self._original = original
 
-    def create(self, **kwargs):
+    def complete(self, **kwargs):
         acc = TraceAccumulator.current()
         if acc is None:
-            return self._original.create(**kwargs)
+            return self._original.complete(**kwargs)
 
         messages = kwargs.get("messages", [])
-        response = self._original.create(**kwargs)
+        response = self._original.complete(**kwargs)
 
         response_text = ""
         tokens = 0
@@ -21,7 +21,7 @@ class _CompletionsProxy:
             msg = response.choices[0].message
             response_text = msg.content or ""
         if hasattr(response, "usage"):
-            tokens = getattr(response.usage, "total_tokens", 0)
+            tokens = getattr(response.usage, "total_tokens", 0) or 0
 
         acc.push(
             {
@@ -37,21 +37,28 @@ class _CompletionsProxy:
         return getattr(self._original, name)
 
 
-class _ChatProxy:
+class _MistralChatProxy:
     def __init__(self, chat) -> None:
         self._chat = chat
-        self.completions = _CompletionsProxy(chat.completions)
+        self.complete = _MistralCompletionsProxy(chat).complete
 
     def __getattr__(self, name: str):
         return getattr(self._chat, name)
 
 
-class OpenAIAdapter:
-    """Wraps an openai.OpenAI() client to intercept .chat.completions.create()."""
+class MistralAdapter:
+    """Wraps a mistralai.Mistral() client to intercept .chat.complete().
+
+    Usage:
+        from mistralai import Mistral
+        from agentsnap.adapters.mistral import MistralAdapter
+        client = MistralAdapter(Mistral(api_key="..."))
+        response = client.chat.complete(model="mistral-large-latest", messages=[...])
+    """
 
     def __init__(self, client) -> None:
         self._client = client
-        self.chat = _ChatProxy(client.chat)
+        self.chat = _MistralChatProxy(client.chat)
 
     def __getattr__(self, name: str):
         return getattr(self._client, name)

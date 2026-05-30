@@ -15,6 +15,17 @@ dependencies = [
 
 [project.optional-dependencies]
 langgraph = ["langgraph"]
+google = ["google-genai>=1.0"]
+cohere = ["cohere>=5.0"]
+mistral = ["mistralai>=1.0"]
+groq = ["groq>=0.9"]
+all-providers = [
+    "google-genai>=1.0",
+    "cohere>=5.0",
+    "mistralai>=1.0",
+    "groq>=0.9",
+    "langgraph",
+]
 dev = [
     "pytest-cov",
     "ruff",

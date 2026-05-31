@@ -191,10 +191,30 @@ def test_compute_diff_passes_at_threshold():
 
 def test_compute_diff_fails_below_threshold():
     snapshot = _make_snapshot(output="hello world")
-    # orthogonal embed → score = 0.0 < 0.92 → fails
-    report = compute_diff(snapshot, OLD_TRACE, "completely different", semantic_threshold=0.92, embed_fn=_orthogonal_embed)
+    # orthogonal embed → score = 0.0 < 0.92 → output fails; llm_threshold=0.0 so llm passes
+    report = compute_diff(snapshot, OLD_TRACE, "completely different",
+                          semantic_threshold=0.92, llm_threshold=0.0, embed_fn=_orthogonal_embed)
     assert not report.passed
     assert any("semantic" in f for f in report.failed_checks)
+
+
+def test_compute_diff_llm_threshold_separate():
+    snapshot = _make_snapshot(output="hello world")
+    # orthogonal embed → llm score = 0.0, output score = 0.0
+    # llm_threshold=0.0 → llm passes; semantic_threshold=0.92 → output fails
+    report = compute_diff(snapshot, OLD_TRACE, "completely different",
+                          semantic_threshold=0.92, llm_threshold=0.0, embed_fn=_orthogonal_embed)
+    assert "semantic:output" in report.failed_checks
+    assert not any(f.startswith("semantic:llm") for f in report.failed_checks)
+
+
+def test_compute_diff_llm_threshold_catches_drift():
+    snapshot = _make_snapshot(output="hello world")
+    # identical output but orthogonal llm response → llm_threshold=0.9 catches it
+    report = compute_diff(snapshot, OLD_TRACE, "hello world",
+                          semantic_threshold=0.0, llm_threshold=0.9, embed_fn=_orthogonal_embed)
+    assert not report.passed
+    assert any(f.startswith("semantic:llm") for f in report.failed_checks)
 
 
 def test_compute_diff_passes_above_threshold():

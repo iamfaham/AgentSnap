@@ -112,9 +112,18 @@ def compute_diff(
     new_trace: list[dict],
     new_output: str,
     semantic_threshold: float = 0.92,
+    llm_threshold: float = 0.75,
     ignored_fields: list[str] | None = None,
     embed_fn: Callable[[list[str]], list[Any]] | None = None,
 ) -> DiffReport:
+    """Compare a new trace against a golden snapshot.
+
+    Two thresholds are applied separately:
+    - llm_threshold (default 0.75): applied to intermediate LLM call responses,
+      which vary naturally between runs due to model non-determinism.
+    - semantic_threshold (default 0.92): applied to the final agent output,
+      which should be stable since it reflects the agent's actual answer.
+    """
     old_trace = old_snapshot["trace"]
     old_output = old_snapshot["output"]
     failed: list[str] = []
@@ -131,7 +140,8 @@ def compute_diff(
 
     sem = semantic_scores(old_trace, new_trace, old_output, new_output, embed_fn=embed_fn)
     for key, score in sem.items():
-        if score < semantic_threshold:
+        threshold = semantic_threshold if key == "output" else llm_threshold
+        if score < threshold:
             failed.append(f"semantic:{key}")
 
     return DiffReport(

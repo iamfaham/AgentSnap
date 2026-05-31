@@ -149,11 +149,12 @@ def test_semantic_drift_below_threshold_passes(tmp_path):
         tool = ToolAdapter(_search_fn, name="search")
         rec.output = SimpleToolAgent(client, tool, "hello")
 
-    # threshold = 0.0 means any similarity passes
+    # both thresholds = 0.0 means any similarity passes
     with AgentAsserter(
         name,
         snapshot_dir=snapshot_dir,
         semantic_threshold=0.0,
+        llm_threshold=0.0,
         embed_fn=_orthogonal_embed,
     ) as asserter:
         client2 = AnthropicAdapter(_simple_client())

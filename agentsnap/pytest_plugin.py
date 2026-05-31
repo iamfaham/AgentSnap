@@ -34,6 +34,7 @@ class SnapshotFixture:
         self,
         test_name: str,
         semantic_threshold: float = 0.92,
+        llm_threshold: float = 0.75,
         ignored_fields: list[str] | None = None,
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
     ) -> AgentAsserter:
@@ -42,6 +43,7 @@ class SnapshotFixture:
             test_name,
             snapshot_dir=self.snapshot_dir,
             semantic_threshold=semantic_threshold,
+            llm_threshold=llm_threshold,
             ignored_fields=ignored_fields,
             embed_fn=embed_fn,
         )

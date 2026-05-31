@@ -248,7 +248,8 @@ def scenario_2_model_upgrade(key: str) -> None:
     # -- Assert with MODEL_B (drift expected) ---------------------------------
     step(f"Asserting with MODEL_B  ({MODEL_B})  -- expect semantic drift")
     try:
-        with AgentAsserter(snap_name, snapshot_dir=SNAPSHOT_DIR, semantic_threshold=0.92) as a:
+        with AgentAsserter(snap_name, snapshot_dir=SNAPSHOT_DIR,
+                           semantic_threshold=0.92, llm_threshold=0.75) as a:
             client = make_client(key)
             tool = ToolAdapter(lookup, name="lookup")
             a.output = call_agent(client, tool, "agentsnap", MODEL_B)
@@ -261,7 +262,8 @@ def scenario_2_model_upgrade(key: str) -> None:
         print(f"  [CAUGHT] AgentRegressionError")
         print(f"  Failed checks  : {r.failed_checks}")
         for k2, v in r.semantic_scores.items():
-            print(f"  Semantic [{k2}]: {v:.4f}  (threshold: 0.92)")
+            threshold = 0.92 if k2 == "output" else 0.75
+            print(f"  Semantic [{k2}]: {v:.4f}  (threshold: {threshold})")
         print()
 
         # -- Approve: promote last run to golden ------------------------------
@@ -275,13 +277,15 @@ def scenario_2_model_upgrade(key: str) -> None:
         # -- Re-assert with MODEL_B (should now pass) -------------------------
         step("Re-asserting with MODEL_B against updated golden -- expect PASS")
         try:
-            with AgentAsserter(snap_name, snapshot_dir=SNAPSHOT_DIR, semantic_threshold=0.92) as a:
+            with AgentAsserter(snap_name, snapshot_dir=SNAPSHOT_DIR,
+                               semantic_threshold=0.92, llm_threshold=0.75) as a:
                 client = make_client(key)
                 tool = ToolAdapter(lookup, name="lookup")
                 a.output = call_agent(client, tool, "agentsnap", MODEL_B)
             print("  PASSED -- MODEL_B is now the baseline.")
         except AgentRegressionError as e2:
-            print(f"  Still drifting: {e2.diff_report.semantic_scores}")
+            r2 = e2.diff_report
+            print(f"  Still drifting (LLM responses are non-deterministic): {r2.semantic_scores}")
 
     # Cleanup
     for p in [snapshot_path(snap_name, SNAPSHOT_DIR),
@@ -332,7 +336,7 @@ def test_agent_no_regression():
     client = OpenRouterAdapter(openai.OpenAI(api_key=key, base_url=OPENROUTER_BASE_URL))
     tool = ToolAdapter(lookup, name="lookup")
 
-    with AgentAsserter("scenario_ci", snapshot_dir=SNAPSHOT_DIR) as a:
+    with AgentAsserter("scenario_ci", snapshot_dir=SNAPSHOT_DIR, semantic_threshold=0.92, llm_threshold=0.75) as a:
         client.chat.completions.create(
             model=MODEL, max_tokens=256,
             messages=[{{"role": "user", "content": "Look up: agentsnap"}}],

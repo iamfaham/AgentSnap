@@ -16,12 +16,14 @@ class AgentAsserter:
         test_name: str,
         snapshot_dir: str = DEFAULT_SNAPSHOT_DIR,
         semantic_threshold: float = 0.92,
+        llm_threshold: float = 0.75,
         ignored_fields: list[str] | None = None,
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
     ) -> None:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
+        self.llm_threshold = llm_threshold
         self.ignored_fields = ignored_fields or []
         self.embed_fn = embed_fn
         self.output: str = ""
@@ -59,6 +61,7 @@ class AgentAsserter:
             new_trace,
             self.output,
             semantic_threshold=self.semantic_threshold,
+            llm_threshold=self.llm_threshold,
             ignored_fields=self.ignored_fields,
             embed_fn=self.embed_fn,
         )

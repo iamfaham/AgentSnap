@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agentsnap.core.diff import compute_diff
+from agentsnap.core.diff import LLMJudge, compute_diff
 from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
 from agentsnap.core.snapshot import read_snapshot, write_last_run
 from agentsnap.exceptions import AgentRegressionError
@@ -19,6 +19,7 @@ class AgentAsserter:
         llm_threshold: float = 0.75,
         ignored_fields: list[str] | None = None,
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
+        judge: LLMJudge | None = None,
     ) -> None:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
@@ -26,6 +27,7 @@ class AgentAsserter:
         self.llm_threshold = llm_threshold
         self.ignored_fields = ignored_fields or []
         self.embed_fn = embed_fn
+        self.judge = judge
         self.output: str = ""
         self._accumulator: TraceAccumulator | None = None
         self._snapshot: dict = {}
@@ -64,6 +66,7 @@ class AgentAsserter:
             llm_threshold=self.llm_threshold,
             ignored_fields=self.ignored_fields,
             embed_fn=self.embed_fn,
+            judge=self.judge,
         )
         if not report.passed:
             raise AgentRegressionError(

@@ -6,6 +6,7 @@ from typing import Any, Callable
 import pytest
 
 from agentsnap.core.asserter import AgentAsserter
+from agentsnap.core.diff import LLMJudge
 from agentsnap.core.recorder import AgentRecorder
 
 
@@ -37,6 +38,7 @@ class SnapshotFixture:
         llm_threshold: float = 0.75,
         ignored_fields: list[str] | None = None,
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
+        judge: LLMJudge | None = None,
     ) -> AgentAsserter:
         """Context manager: replay an agent run and assert against the snapshot."""
         return AgentAsserter(
@@ -46,6 +48,7 @@ class SnapshotFixture:
             llm_threshold=llm_threshold,
             ignored_fields=ignored_fields,
             embed_fn=embed_fn,
+            judge=judge,
         )
 
 

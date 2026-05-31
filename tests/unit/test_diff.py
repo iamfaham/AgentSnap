@@ -103,6 +103,7 @@ def test_structural_different_tool():
     assert result is not None
     assert "search" in result
     assert "fetch" in result
+    assert "edit distance" in result
 
 
 def test_structural_catches_reordering():
@@ -159,13 +160,13 @@ def test_argument_ignored_fields():
 # ── Semantic scores ───────────────────────────────────────────────────────────
 
 def test_semantic_identical(monkeypatch):
-    scores = semantic_scores(OLD_TRACE, OLD_TRACE, "same output", "same output", embed_fn=_identical_embed)
+    scores, _ = semantic_scores(OLD_TRACE, OLD_TRACE, "same output", "same output", embed_fn=_identical_embed)
     for score in scores.values():
         assert score == pytest.approx(1.0)
 
 
 def test_semantic_orthogonal(monkeypatch):
-    scores = semantic_scores(OLD_TRACE, OLD_TRACE, "output A", "output B", embed_fn=_orthogonal_embed)
+    scores, _ = semantic_scores(OLD_TRACE, OLD_TRACE, "output A", "output B", embed_fn=_orthogonal_embed)
     assert scores["output"] == pytest.approx(0.0, abs=0.01)
 
 

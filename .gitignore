@@ -13,3 +13,6 @@ wheels/
 
 .pytest_cache/
 
+__agent_snapshots__/.last_run/
+
+.env

@@ -27,6 +27,13 @@ from pathlib import Path
 # Add project root to path when running as a script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load .env from the project root if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except ImportError:
+    pass  # python-dotenv not installed, rely on shell env vars
+
 from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
@@ -37,6 +44,7 @@ SEPARATOR = "-" * 60
 
 
 # -- Shared tool ---------------------------------------------------------------
+
 
 def lookup(query: str) -> str:
     """Simulates a knowledge-base lookup. Replace with a real tool."""
@@ -62,18 +70,23 @@ def run_provider(name: str, make_client, call_agent) -> None:
         print(f"[{name}] snapshot found -- asserting...")
         with AgentAsserter(snap_name, snapshot_dir=SNAPSHOT_DIR) as a:
             client = make_client()
-            a.output = call_agent(client, ToolAdapter(lookup, name="lookup"), "agentsnap")
+            a.output = call_agent(
+                client, ToolAdapter(lookup, name="lookup"), "agentsnap"
+            )
         print(f"[{name}] OK no regression")
 
     except SnapshotNotFoundError:
         # First run -- record the golden snapshot
         print(f"[{name}] no snapshot yet -- recording golden run...")
-        with AgentRecorder(snap_name, snapshot_dir=SNAPSHOT_DIR, model=name) as rec:
-            client = make_client()
-            rec.input_data = {"query": "agentsnap"}
-            rec.output = call_agent(client, tool, "agentsnap")
-        print(f"[{name}] OK snapshot written -> {snap_name}.json")
-        print(f"[{name}]   commit it: git add {SNAPSHOT_DIR}/{snap_name}.json")
+        try:
+            with AgentRecorder(snap_name, snapshot_dir=SNAPSHOT_DIR, model=name) as rec:
+                client = make_client()
+                rec.input_data = {"query": "agentsnap"}
+                rec.output = call_agent(client, tool, "agentsnap")
+            print(f"[{name}] OK snapshot written -> {snap_name}.json")
+            print(f"[{name}]   commit it: git add {SNAPSHOT_DIR}/{snap_name}.json")
+        except Exception as e:
+            print(f"[{name}] ERROR during record: {type(e).__name__}: {e}")
 
     except AgentRegressionError as e:
         print(f"[{name}] FAIL REGRESSION DETECTED")
@@ -84,8 +97,12 @@ def run_provider(name: str, make_client, call_agent) -> None:
             print(f"         Semantic [{k}]: {v:.4f}")
         print(f"         To approve: python -m agentsnap.cli update {snap_name}")
 
+    except Exception as e:
+        print(f"[{name}] ERROR: {type(e).__name__}: {e}")
+
 
 # -- Anthropic -----------------------------------------------------------------
+
 
 def anthropic_demo() -> None:
     key = os.getenv("ANTHROPIC_API_KEY")
@@ -116,6 +133,7 @@ def anthropic_demo() -> None:
 
 # -- OpenAI --------------------------------------------------------------------
 
+
 def openai_demo() -> None:
     key = os.getenv("OPENAI_API_KEY")
     if not key:
@@ -145,6 +163,7 @@ def openai_demo() -> None:
 
 # -- Google Gemini -------------------------------------------------------------
 
+
 def gemini_demo() -> None:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
@@ -172,6 +191,7 @@ def gemini_demo() -> None:
 
 
 # -- Cohere --------------------------------------------------------------------
+
 
 def cohere_demo() -> None:
     key = os.getenv("COHERE_API_KEY")
@@ -201,6 +221,7 @@ def cohere_demo() -> None:
 
 # -- Mistral -------------------------------------------------------------------
 
+
 def mistral_demo() -> None:
     key = os.getenv("MISTRAL_API_KEY")
     if not key:
@@ -228,6 +249,7 @@ def mistral_demo() -> None:
 
 
 # -- Groq ----------------------------------------------------------------------
+
 
 def groq_demo() -> None:
     key = os.getenv("GROQ_API_KEY")
@@ -258,6 +280,7 @@ def groq_demo() -> None:
 
 # -- OpenRouter ----------------------------------------------------------------
 
+
 def openrouter_demo() -> None:
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
@@ -277,7 +300,7 @@ def openrouter_demo() -> None:
 
     def call_agent(client, tool, query: str) -> str:
         client.chat.completions.create(
-            model="anthropic/claude-haiku-4-5",
+            model="google/gemini-3.5-flash",
             max_tokens=100,
             messages=[{"role": "user", "content": f"Look up: {query}"}],
         )
@@ -309,6 +332,8 @@ if __name__ == "__main__":
         for p in sorted(snaps):
             print(f"  {p.name}")
         print("\nCommit them:")
-        print(f"  git add {SNAPSHOT_DIR}/real_*.json && git commit -m 'feat: add golden snapshots'")
+        print(
+            f"  git add {SNAPSHOT_DIR}/real_*.json && git commit -m 'feat: add golden snapshots'"
+        )
     else:
         print("No snapshots written (set at least one API key env var).")

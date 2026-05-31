@@ -29,6 +29,7 @@ all-providers = [
 dev = [
     "pytest-cov",
     "ruff",
+    "python-dotenv",
 ]
 
 [project.scripts]

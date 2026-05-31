@@ -14,7 +14,7 @@ class AgentRegressionError(Exception):
 
     def __str__(self) -> str:
         r = self.diff_report
-        lines = [super().__str__(), "", "── Diff Report ──────────────────────────"]
+        lines = [super().__str__(), "", "-- Diff Report ------------------------------------------"]
         if r.structural_diff:
             lines.append(f"  [STRUCTURAL] {r.structural_diff}")
         for name, diff in (r.argument_diffs or {}).items():
@@ -32,7 +32,7 @@ class AgentRegressionError(Exception):
         for step, score in (r.semantic_scores or {}).items():
             lines.append(f"  [SEMANTIC] {step}: {score:.4f}")
         lines.append(f"  Failed checks: {r.failed_checks}")
-        lines.append("─────────────────────────────────────────")
+        lines.append("---------------------------------------------------------")
         return "\n".join(lines)
 
 

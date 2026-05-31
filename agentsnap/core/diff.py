@@ -51,7 +51,7 @@ def structural_diff(old_trace: list[dict], new_trace: list[dict]) -> str | None:
     old_tools = [s["name"] for s in _tool_calls(old_trace)]
     new_tools = [s["name"] for s in _tool_calls(new_trace)]
     if old_tools != new_tools:
-        return f"Tool call sequence changed: {old_tools!r} → {new_tools!r}"
+        return f"Tool call sequence changed: {old_tools!r} -> {new_tools!r}"
     return None
 
 

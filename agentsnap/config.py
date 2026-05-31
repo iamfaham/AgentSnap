@@ -6,19 +6,34 @@ Priority (highest to lowest):
   2. [tool.agentsnap] in the nearest pyproject.toml
   3. Built-in defaults
 
-Environment variables
----------------------
-AGENTSNAP_JUDGE_API_KEY   -- required to enable LLM judge (keep out of files)
-AGENTSNAP_JUDGE_MODEL     -- optional, overrides pyproject.toml
-AGENTSNAP_JUDGE_BASE_URL  -- optional, overrides pyproject.toml
+API key resolution
+------------------
+agentsnap does NOT require a separate key. It looks for a key in this order:
+
+  1. AGENTSNAP_JUDGE_API_KEY  -- explicit override, always wins
+  2. Provider-specific key derived from judge_base_url:
+       openrouter.ai   -> OPENROUTER_API_KEY
+       api.openai.com  -> OPENAI_API_KEY
+       anthropic.com   -> ANTHROPIC_API_KEY
+       api.groq.com    -> GROQ_API_KEY
+       api.mistral.ai  -> MISTRAL_API_KEY
+       api.cohere.com  -> COHERE_API_KEY
+
+So if you already have OPENROUTER_API_KEY set (and judge_base_url points to
+OpenRouter, which is the default), the judge works with zero additional config.
+
+Other environment variables
+----------------------------
+AGENTSNAP_JUDGE_MODEL     -- optional model override
+AGENTSNAP_JUDGE_BASE_URL  -- optional base URL override
 
 pyproject.toml (under [tool.agentsnap])
 ----------------------------------------
 [tool.agentsnap]
-judge_model          = "openai/gpt-4o-mini"
-judge_base_url       = "https://openrouter.ai/api/v1"
-semantic_threshold   = 0.92
-llm_threshold        = 0.75
+judge_model        = "openai/gpt-4o-mini"
+judge_base_url     = "https://openrouter.ai/api/v1"
+semantic_threshold = 0.92
+llm_threshold      = 0.75
 """
 
 from __future__ import annotations
@@ -33,6 +48,17 @@ ENV_API_KEY  = "AGENTSNAP_JUDGE_API_KEY"
 ENV_MODEL    = "AGENTSNAP_JUDGE_MODEL"
 ENV_BASE_URL = "AGENTSNAP_JUDGE_BASE_URL"
 
+# -- Provider key lookup: substring of base_url -> env var name ---------------
+
+_PROVIDER_KEY_MAP: list[tuple[str, str]] = [
+    ("openrouter.ai",  "OPENROUTER_API_KEY"),
+    ("api.openai.com", "OPENAI_API_KEY"),
+    ("anthropic.com",  "ANTHROPIC_API_KEY"),
+    ("api.groq.com",   "GROQ_API_KEY"),
+    ("api.mistral.ai", "MISTRAL_API_KEY"),
+    ("api.cohere.com", "COHERE_API_KEY"),
+]
+
 # -- Built-in defaults ---------------------------------------------------------
 
 DEFAULTS: dict[str, Any] = {
@@ -44,7 +70,6 @@ DEFAULTS: dict[str, Any] = {
 
 
 def _find_pyproject(start: Path | None = None) -> Path | None:
-    """Walk up from start (or cwd) to find the nearest pyproject.toml."""
     here = (start or Path.cwd()).resolve()
     for candidate in [here, *here.parents]:
         p = candidate / "pyproject.toml"
@@ -54,7 +79,6 @@ def _find_pyproject(start: Path | None = None) -> Path | None:
 
 
 def _load_pyproject(path: Path) -> dict[str, Any]:
-    """Parse [tool.agentsnap] from a pyproject.toml."""
     try:
         try:
             import tomllib
@@ -66,6 +90,18 @@ def _load_pyproject(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _resolve_api_key(base_url: str) -> str | None:
+    """Find the right API key env var for a given base URL."""
+    # Explicit override always wins
+    if key := os.getenv(ENV_API_KEY):
+        return key
+    # Fall back to provider-specific key
+    for url_fragment, env_var in _PROVIDER_KEY_MAP:
+        if url_fragment in base_url:
+            return os.getenv(env_var)
+    return None
+
+
 def load(start: Path | None = None) -> dict[str, Any]:
     """Return merged config: defaults < pyproject.toml < env vars."""
     cfg = dict(DEFAULTS)
@@ -74,18 +110,17 @@ def load(start: Path | None = None) -> dict[str, Any]:
     if pyproject:
         cfg.update(_load_pyproject(pyproject))
 
-    # Env vars always win
     if model := os.getenv(ENV_MODEL):
         cfg["judge_model"] = model
     if base_url := os.getenv(ENV_BASE_URL):
         cfg["judge_base_url"] = base_url
 
-    cfg["judge_api_key"] = os.getenv(ENV_API_KEY)
+    cfg["judge_api_key"] = _resolve_api_key(cfg["judge_base_url"])
     return cfg
 
 
 def judge_from_env(start: Path | None = None):
-    """Return a configured LLMJudge if AGENTSNAP_JUDGE_API_KEY is set, else None."""
+    """Return a configured LLMJudge if an API key can be resolved, else None."""
     from agentsnap.core.diff import LLMJudge
 
     cfg = load(start)

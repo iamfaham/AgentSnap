@@ -100,15 +100,37 @@ pip install agentsnap[all-providers]
 
 ### API key for the LLM judge (optional)
 
-The LLM judge uses a small language model to compare outputs instead of embeddings — more accurate for factual content. Set the key as an environment variable (never in a file):
+The LLM judge uses a small language model to compare outputs instead of embeddings — more accurate for factual content.
+
+agentsnap resolves the API key automatically — **you do not need a separate key**. It checks in this order:
+
+1. `AGENTSNAP_JUDGE_API_KEY` — explicit override, always wins
+2. The provider-specific key that matches `judge_base_url`:
+
+| `judge_base_url` contains | Key used automatically |
+|--------------------------|------------------------|
+| `openrouter.ai` (default) | `OPENROUTER_API_KEY` |
+| `api.openai.com` | `OPENAI_API_KEY` |
+| `anthropic.com` | `ANTHROPIC_API_KEY` |
+| `api.groq.com` | `GROQ_API_KEY` |
+| `api.mistral.ai` | `MISTRAL_API_KEY` |
+| `api.cohere.com` | `COHERE_API_KEY` |
+
+So if you already have `OPENROUTER_API_KEY` in your environment and the default `judge_base_url` is set, the judge works with zero additional config.
+
+To use a different provider, change `judge_base_url` in `pyproject.toml` and set the matching env var:
 
 ```bash
-export AGENTSNAP_JUDGE_API_KEY=sk-or-...   # OpenRouter, OpenAI, or any compatible key
-export AGENTSNAP_JUDGE_MODEL=openai/gpt-4o-mini      # optional
-export AGENTSNAP_JUDGE_BASE_URL=https://openrouter.ai/api/v1  # optional
+# Use OpenAI directly instead of OpenRouter
+export OPENAI_API_KEY=sk-...
+```
+```toml
+[tool.agentsnap]
+judge_base_url = "https://api.openai.com/v1"
+judge_model    = "gpt-4o-mini"
 ```
 
-Once set, the `snapshot` pytest fixture enables the LLM judge automatically — no code changes needed in tests.
+Once any matching key is found, the `snapshot` pytest fixture enables the LLM judge automatically — no code changes needed in tests.
 
 ### Project settings (`pyproject.toml`)
 

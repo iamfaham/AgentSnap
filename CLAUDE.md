@@ -109,6 +109,11 @@ Integration tests (`tests/integration/`) use `MockAnthropicClient` / `MockAnthro
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENTSNAP_JUDGE_API_KEY` | Enables LLM judge in pytest fixture |
-| `AGENTSNAP_JUDGE_MODEL` | Override model (default: `openai/gpt-4o-mini`) |
-| `AGENTSNAP_JUDGE_BASE_URL` | Override base URL (default: OpenRouter) |
+| `AGENTSNAP_JUDGE_API_KEY` | Explicit key override — always wins |
+| `AGENTSNAP_JUDGE_MODEL` | Model override (default: `openai/gpt-4o-mini`) |
+| `AGENTSNAP_JUDGE_BASE_URL` | Base URL override (default: OpenRouter) |
+| `OPENROUTER_API_KEY` | Auto-used when `judge_base_url` contains `openrouter.ai` |
+| `OPENAI_API_KEY` | Auto-used when `judge_base_url` contains `api.openai.com` |
+| `ANTHROPIC_API_KEY` | Auto-used when `judge_base_url` contains `anthropic.com` |
+
+Key resolution is in `config._resolve_api_key()`. Add new entries to `_PROVIDER_KEY_MAP` in `config.py` to support additional providers.

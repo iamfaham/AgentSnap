@@ -122,7 +122,7 @@ def anthropic_demo() -> None:
     def call_agent(client, tool, query: str) -> str:
         client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=100,
+            max_tokens=1024,
             messages=[{"role": "user", "content": f"Look up: {query}"}],
         )
         result = tool(query=query)
@@ -152,7 +152,7 @@ def openai_demo() -> None:
     def call_agent(client, tool, query: str) -> str:
         client.chat.completions.create(
             model="gpt-4o-mini",
-            max_tokens=100,
+            max_tokens=1024,
             messages=[{"role": "user", "content": f"Look up: {query}"}],
         )
         result = tool(query=query)
@@ -269,7 +269,7 @@ def groq_demo() -> None:
     def call_agent(client, tool, query: str) -> str:
         client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            max_tokens=100,
+            max_tokens=1024,
             messages=[{"role": "user", "content": f"Look up: {query}"}],
         )
         result = tool(query=query)
@@ -301,7 +301,7 @@ def openrouter_demo() -> None:
     def call_agent(client, tool, query: str) -> str:
         client.chat.completions.create(
             model="google/gemini-3.5-flash",
-            max_tokens=100,
+            max_tokens=1024,
             messages=[{"role": "user", "content": f"Look up: {query}"}],
         )
         result = tool(query=query)

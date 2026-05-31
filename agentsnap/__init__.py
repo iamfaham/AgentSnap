@@ -7,8 +7,10 @@ from agentsnap.exceptions import (
     AgentRegressionError,
     SnapshotNotFoundError,
 )
+from agentsnap.wrap import wrap
 
 __all__ = [
+    "wrap",
     "AgentRecorder",
     "AgentAsserter",
     "LLMJudge",

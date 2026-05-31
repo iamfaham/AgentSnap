@@ -8,6 +8,8 @@ import pytest
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.diff import LLMJudge
 from agentsnap.core.recorder import AgentRecorder
+from agentsnap.core.snapshot import snapshot_path
+from agentsnap.exceptions import SnapshotNotFoundError
 
 
 # -- pytest ini options -------------------------------------------------------
@@ -15,20 +17,21 @@ from agentsnap.core.recorder import AgentRecorder
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Register [tool.agentsnap] keys as pytest ini options.
 
-    These can be set in pyproject.toml under [tool.pytest.ini_options]:
+    Set in pyproject.toml under [tool.pytest.ini_options]:
 
         [tool.pytest.ini_options]
-        agentsnap_judge_model      = "openai/gpt-4o-mini"
-        agentsnap_judge_base_url   = "https://openrouter.ai/api/v1"
+        agentsnap_judge_model        = "openai/gpt-4o-mini"
+        agentsnap_judge_base_url     = "https://openrouter.ai/api/v1"
         agentsnap_semantic_threshold = "0.92"
         agentsnap_llm_threshold      = "0.75"
 
-    The API key is NEVER stored in a file — set AGENTSNAP_JUDGE_API_KEY instead.
+    The API key is NEVER stored in a file — set AGENTSNAP_JUDGE_API_KEY
+    (or your provider key, e.g. OPENROUTER_API_KEY) as an env var instead.
     """
     parser.addini("agentsnap_judge_model",        default=None,   help="LLM model slug for judge")
     parser.addini("agentsnap_judge_base_url",     default=None,   help="Base URL for judge LLM API")
-    parser.addini("agentsnap_semantic_threshold", default="0.92", help="Cosine similarity threshold for final output")
-    parser.addini("agentsnap_llm_threshold",      default="0.75", help="Cosine similarity threshold for intermediate LLM responses")
+    parser.addini("agentsnap_semantic_threshold", default="0.92", help="Threshold for final output similarity")
+    parser.addini("agentsnap_llm_threshold",      default="0.75", help="Threshold for intermediate LLM response similarity")
 
 
 def _ini(request: pytest.FixtureRequest, key: str, fallback: Any) -> Any:
@@ -49,6 +52,51 @@ def _find_snapshot_dir(request: pytest.FixtureRequest) -> str:
     return "__agent_snapshots__"
 
 
+# -- Auto context manager: record if no snapshot, assert if snapshot exists --
+
+class _AutoContext:
+    """Returned by snapshot.run(). Records on first call, asserts on subsequent calls."""
+
+    def __init__(self, test_name: str, recorder: AgentRecorder, asserter: AgentAsserter, is_record: bool) -> None:
+        self._test_name = test_name
+        self._recorder = recorder
+        self._asserter = asserter
+        self._is_record = is_record
+        self._ctx = None
+
+    def __enter__(self) -> _AutoContext:
+        if self._is_record:
+            self._ctx = self._recorder.__enter__()
+            print(f"\n  [agentsnap] recording '{self._test_name}'")
+        else:
+            self._ctx = self._asserter.__enter__()
+            print(f"\n  [agentsnap] asserting '{self._test_name}'")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return (self._recorder if self._is_record else self._asserter).__exit__(exc_type, exc_val, exc_tb)
+
+    @property
+    def output(self) -> str:
+        return self._recorder.output if self._is_record else self._asserter.output
+
+    @output.setter
+    def output(self, value: str) -> None:
+        if self._is_record:
+            self._recorder.output = value
+        else:
+            self._asserter.output = value
+
+    @property
+    def input_data(self):
+        return self._recorder.input_data if self._is_record else None
+
+    @input_data.setter
+    def input_data(self, value) -> None:
+        if self._is_record:
+            self._recorder.input_data = value
+
+
 # -- Fixture ------------------------------------------------------------------
 
 class SnapshotFixture:
@@ -64,8 +112,30 @@ class SnapshotFixture:
         self.llm_threshold = llm_threshold
         self.judge = judge
 
+    def run(
+        self,
+        test_name: str,
+        model: str = "unknown",
+        semantic_threshold: float | None = None,
+        llm_threshold: float | None = None,
+        ignored_fields: list[str] | None = None,
+        judge: LLMJudge | None = None,
+    ) -> _AutoContext:
+        """Auto context manager: records if no snapshot exists, asserts if it does.
+
+        This is the simplest way to use agentsnap — no need to think about
+        record vs assert mode:
+
+            with snapshot.run("my_agent") as s:
+                s.output = my_agent(client, tool, "test input")
+        """
+        snap_exists = snapshot_path(test_name, self.snapshot_dir).exists()
+        recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model)
+        asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge)
+        return _AutoContext(test_name, recorder, asserter, is_record=not snap_exists)
+
     def record_agent(self, test_name: str, model: str = "unknown") -> AgentRecorder:
-        """Context manager: record an agent run and write a snapshot."""
+        """Explicit record mode."""
         return AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model)
 
     def assert_agent(
@@ -77,16 +147,21 @@ class SnapshotFixture:
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
         judge: LLMJudge | None = None,
     ) -> AgentAsserter:
-        """Context manager: replay an agent run and assert against the snapshot.
+        """Explicit assert mode. Pass judge=False to force embeddings."""
+        return self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge, embed_fn)
 
-        Per-call values override the project-level defaults from pyproject.toml
-        and env vars. Pass judge=False to explicitly disable the LLM judge even
-        if AGENTSNAP_JUDGE_API_KEY is set.
-        """
+    def _make_asserter(
+        self,
+        test_name: str,
+        semantic_threshold: float | None,
+        llm_threshold: float | None,
+        ignored_fields: list[str] | None,
+        judge: LLMJudge | None,
+        embed_fn: Callable | None = None,
+    ) -> AgentAsserter:
         effective_judge = judge if judge is not None else self.judge
         if judge is False:
             effective_judge = None
-
         return AgentAsserter(
             test_name,
             snapshot_dir=self.snapshot_dir,
@@ -100,27 +175,23 @@ class SnapshotFixture:
 
 @pytest.fixture
 def snapshot(request: pytest.FixtureRequest) -> SnapshotFixture:
-    """Provides record_agent() and assert_agent() context managers.
+    """Provides run(), record_agent(), and assert_agent() context managers.
 
-    Configured automatically from AGENTSNAP_JUDGE_API_KEY env var and
-    [tool.pytest.ini_options] in pyproject.toml. No code changes needed
-    to enable the LLM judge — just set the env var.
+    Configured automatically from env vars and [tool.agentsnap] in pyproject.toml.
+    The LLM judge is enabled automatically when OPENROUTER_API_KEY (or any
+    matching provider key) is found in the environment.
     """
     import os
     from agentsnap.config import load
 
     snapshot_dir = _find_snapshot_dir(request)
-
-    # Load project config (pyproject.toml + env vars)
     cfg = load(Path(request.fspath).parent)
 
-    # ini options override pyproject.toml for pytest-specific config
     semantic_threshold = float(_ini(request, "agentsnap_semantic_threshold", cfg["semantic_threshold"]))
     llm_threshold      = float(_ini(request, "agentsnap_llm_threshold",      cfg["llm_threshold"]))
 
-    # Build judge from env if key is present
     judge: LLMJudge | None = None
-    api_key = cfg.get("judge_api_key") or os.getenv("AGENTSNAP_JUDGE_API_KEY")
+    api_key = cfg.get("judge_api_key")
     if api_key:
         judge_model    = _ini(request, "agentsnap_judge_model",    cfg["judge_model"])
         judge_base_url = _ini(request, "agentsnap_judge_base_url", cfg["judge_base_url"])

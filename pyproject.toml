@@ -12,6 +12,7 @@ dependencies = [
     "pytest>=7.0",
     "numpy>=1.24",
     "python-dotenv>=1.0",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,14 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+
+[tool.agentsnap]
+# LLM judge settings (API key must be set via AGENTSNAP_JUDGE_API_KEY env var)
+judge_model      = "openai/gpt-4o-mini"
+judge_base_url   = "https://openrouter.ai/api/v1"
+# Thresholds
+semantic_threshold = 0.92   # final agent output
+llm_threshold      = 0.75   # intermediate LLM call responses
 
 [tool.ruff]
 line-length = 100

@@ -113,6 +113,15 @@ class LLMJudge:
     def last_reasons(self) -> dict[str, str]:
         return dict(self._reasons)
 
+    @classmethod
+    def from_env(cls) -> "LLMJudge | None":
+        """Return a configured LLMJudge if AGENTSNAP_JUDGE_API_KEY is set, else None.
+
+        Reads model and base_url from env vars or [tool.agentsnap] in pyproject.toml.
+        """
+        from agentsnap.config import judge_from_env
+        return judge_from_env()
+
 
 # ---------------------------------------------------------------------------
 # Structural diff — edit distance on tool sequence

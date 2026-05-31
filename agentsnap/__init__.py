@@ -1,3 +1,4 @@
+from agentsnap import config
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.diff import LLMJudge
 from agentsnap.core.recorder import AgentRecorder
@@ -14,4 +15,5 @@ __all__ = [
     "AgentRegressionError",
     "SnapshotNotFoundError",
     "AdapterNotWrappedError",
+    "config",
 ]

@@ -13,6 +13,9 @@ class _CompletionsProxy:
             return self._original.create(**kwargs)
 
         messages = kwargs.get("messages", [])
+        # Force non-streaming so we always get a complete ChatCompletion object.
+        # Streaming responses expose deltas, not the full message content.
+        kwargs["stream"] = False
         response = self._original.create(**kwargs)
 
         response_text = ""

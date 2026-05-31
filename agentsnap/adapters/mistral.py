@@ -13,6 +13,7 @@ class _MistralCompletionsProxy:
             return self._original.complete(**kwargs)
 
         messages = kwargs.get("messages", [])
+        kwargs["stream"] = False
         response = self._original.complete(**kwargs)
 
         response_text = ""

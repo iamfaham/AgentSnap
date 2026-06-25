@@ -8,7 +8,6 @@ from pathlib import Path
 import click
 
 from agentsnap.core.snapshot import list_snapshots, last_run_path, snapshot_path
-from agentsnap.exceptions import SnapshotNotFoundError
 
 DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
 
@@ -56,18 +55,62 @@ def diff_cmd(snapshot_file: str) -> None:
     click.echo(json.dumps(data, indent=2, sort_keys=True))
 
 
+def _print_update_diff(old: dict, new: dict) -> None:
+    """Print a human-readable diff between golden and last-run snapshots."""
+    click.echo("\nChanges to approve:")
+
+    old_output = old.get("output", "")
+    new_output = new.get("output", "")
+    if old_output != new_output:
+        click.echo(f"  output:\n    old: {old_output!r}\n    new: {new_output!r}")
+    else:
+        click.echo(f"  output: unchanged ({old_output!r})")
+
+    old_tools = [s["name"] for s in old.get("trace", []) if s.get("type") == "tool_call"]
+    new_tools = [s["name"] for s in new.get("trace", []) if s.get("type") == "tool_call"]
+    if old_tools != new_tools:
+        click.echo(f"  tool sequence:\n    old: {old_tools}\n    new: {new_tools}")
+    else:
+        click.echo(f"  tool sequence: unchanged {old_tools}")
+
+    old_steps = len(old.get("trace", []))
+    new_steps = len(new.get("trace", []))
+    if old_steps != new_steps:
+        click.echo(f"  trace steps: {old_steps} → {new_steps}")
+
+    old_model = old.get("model", "unknown")
+    new_model = new.get("model", "unknown")
+    if old_model != new_model:
+        click.echo(f"  model: {old_model!r} → {new_model!r}")
+
+
 @cli.command("update")
 @click.argument("test_name")
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
-def update_cmd(test_name: str, snapshot_dir: str) -> None:
-    """Copy the last run trace over the snapshot (approve a regression)."""
+@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt.")
+def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
+    """Show what changed and promote the last run to the golden snapshot."""
     src = last_run_path(test_name, snapshot_dir)
     dst = snapshot_path(test_name, snapshot_dir)
+
     if not src.exists():
         click.echo(
             f"No last run found for '{test_name}'. Run 'agentsnap run' first.", err=True
         )
         raise SystemExit(1)
+
+    if dst.exists():
+        old = json.loads(dst.read_text(encoding="utf-8"))
+        new = json.loads(src.read_text(encoding="utf-8"))
+        _print_update_diff(old, new)
+    else:
+        click.echo("No existing snapshot — will create a new golden.")
+
+    if not yes:
+        if not click.confirm("\nApprove and update snapshot?"):
+            click.echo("Aborted.")
+            raise SystemExit(1)
+
     shutil.copy2(src, dst)
     click.echo(f"Updated snapshot: {dst}")
 

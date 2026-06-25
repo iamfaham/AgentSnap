@@ -4,18 +4,19 @@ from typing import Any, Callable
 
 from agentsnap.core.diff import LLMJudge, compute_diff
 from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
-from agentsnap.core.snapshot import read_snapshot, write_last_run
-from agentsnap.exceptions import AgentRegressionError
+from agentsnap.core.snapshot import read_snapshot, write_last_run, write_snapshot
+from agentsnap.exceptions import AgentRegressionError, SnapshotNotFoundError
 
-# When using embedding cosine similarity, 0.75 is a good floor for
-# intermediate LLM responses. When using the LLM judge, its scale is
-# stricter (two similar phrasings may score ~0.5), so the default is lower.
 _DEFAULT_LLM_THRESHOLD_EMBED = 0.75
 _DEFAULT_LLM_THRESHOLD_JUDGE = 0.40
 
 
 class AgentAsserter:
-    """Context manager that replays an agent run and compares against the snapshot."""
+    """Context manager that replays an agent run and compares against the snapshot.
+
+    On first use (no snapshot file), automatically records the run as the golden
+    instead of raising SnapshotNotFoundError. Subsequent runs assert against it.
+    """
 
     def __init__(
         self,
@@ -30,9 +31,6 @@ class AgentAsserter:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
-        # Auto-select default based on backend: judge uses a lower floor
-        # because its 0-1 scale is stricter than cosine similarity.
-        # Explicit value always wins.
         if llm_threshold is not None:
             self.llm_threshold = llm_threshold
         else:
@@ -47,9 +45,16 @@ class AgentAsserter:
         self._accumulator: TraceAccumulator | None = None
         self._snapshot: dict = {}
         self._token = None
+        self._record_mode: bool = False
 
     def __enter__(self) -> AgentAsserter:
-        self._snapshot = read_snapshot(self.test_name, self.snapshot_dir)
+        try:
+            self._snapshot = read_snapshot(self.test_name, self.snapshot_dir)
+            self._record_mode = False
+        except SnapshotNotFoundError:
+            self._snapshot = {}
+            self._record_mode = True
+            print(f"\n  [agentsnap] no snapshot for '{self.test_name}' — recording golden run")
         self._accumulator = TraceAccumulator(
             model=self._snapshot.get("model", "unknown")
         )
@@ -63,6 +68,17 @@ class AgentAsserter:
 
         assert self._accumulator is not None
         new_trace = self._accumulator.trace
+
+        if self._record_mode:
+            write_snapshot(
+                self.test_name,
+                self.snapshot_dir,
+                self._accumulator.model,
+                None,
+                new_trace,
+                self.output,
+            )
+            return False
 
         write_last_run(
             self.test_name,

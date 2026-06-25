@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pathlib import Path
 
 from agentsnap.adapters.anthropic import AnthropicAdapter
 from agentsnap.adapters.tool import ToolAdapter
@@ -200,12 +201,39 @@ def test_different_tool_args_detected(tmp_path):
     assert "arguments" in exc_info.value.diff_report.failed_checks
 
 
-def test_snapshot_not_found_raises(tmp_path):
-    from agentsnap.exceptions import SnapshotNotFoundError
+def test_auto_records_on_first_miss(tmp_path):
+    """AgentAsserter should auto-record when no snapshot exists, not raise."""
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "auto_record"
+    snap_file = Path(snapshot_dir) / f"{name}.json"
 
-    with pytest.raises(SnapshotNotFoundError):
-        with AgentAsserter("no_such_snapshot", snapshot_dir=str(tmp_path)):
-            pass
+    assert not snap_file.exists()
+
+    # First use: no snapshot → should auto-record, not raise
+    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_identical_embed) as a:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        a.output = SimpleToolAgent(client, tool, "hello")
+
+    assert snap_file.exists(), "snapshot should have been written on first miss"
+
+
+def test_auto_record_then_second_run_asserts(tmp_path):
+    """After auto-record, a second run should assert against the written golden."""
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "auto_then_assert"
+
+    # First use: auto-records
+    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_identical_embed) as a:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        a.output = SimpleToolAgent(client, tool, "hello")
+
+    # Second use: asserts (identical run → passes)
+    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_identical_embed) as a:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        a.output = SimpleToolAgent(client, tool, "hello")
 
 
 def test_last_run_written_on_assert(tmp_path):

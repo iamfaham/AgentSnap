@@ -10,7 +10,10 @@ Run:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agentsnap.adapters.anthropic import AnthropicAdapter
 from agentsnap.adapters.cohere import CohereAdapter
@@ -18,6 +21,7 @@ from agentsnap.adapters.google import GeminiAdapter
 from agentsnap.adapters.groq import GroqAdapter
 from agentsnap.adapters.mistral import MistralAdapter
 from agentsnap.adapters.openai import OpenAIAdapter
+from agentsnap.adapters.langgraph import LangGraphAdapter
 from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
@@ -106,6 +110,32 @@ class MockMistralClient:
     def __init__(self, *responses): self.chat = MockMistralChat(*responses)
 
 
+# -- Mock LangGraph graph (fires callbacks, no langchain_core import needed) --
+
+class _MockLangGraph:
+    """Minimal fake CompiledGraph that fires AgentSnapCallback events."""
+
+    def __init__(self, llm_text: str, tool_name: str = "lookup") -> None:
+        self._llm_text = llm_text
+        self._tool_name = tool_name
+
+    def invoke(self, input_data, config=None, **kwargs):
+        class _Gen:
+            def __init__(self, text): self.text = text
+        class _Result:
+            def __init__(self, text): self.generations = [[_Gen(text)]]
+
+        for cb in (config or {}).get("callbacks", []):
+            if hasattr(cb, "on_llm_end"):
+                cb.on_llm_end(_Result(self._llm_text))
+            if hasattr(cb, "on_tool_end"):
+                cb.on_tool_end(lookup(input_data), name=self._tool_name)
+        return f"Result: {lookup(input_data)}"
+
+    def stream(self, input_data, **kwargs):
+        return iter([])
+
+
 # -- Shared tool ---------------------------------------------------------------
 
 def lookup(query: str) -> str:
@@ -150,7 +180,6 @@ def run_demo(provider: str, make_client, call_llm, snapshot_dir: str) -> None:
             client = make_client()
             drifted_tool = ToolAdapter(drifted_lookup, name="lookup")
             # Force a different arg value so argument diff fires
-            acc = __import__("agentsnap.core.recorder", fromlist=["TraceAccumulator"]).TraceAccumulator.current()
             call_llm(client, drifted_tool, "What is agentsnap?")
             a.output = "drifted output"
     except AgentRegressionError as e:
@@ -232,6 +261,34 @@ def groq_demo(snapshot_dir: str) -> None:
     run_demo("groq", make, call, snapshot_dir)
 
 
+def langgraph_demo(snapshot_dir: str) -> None:
+    """Demonstrates node-level capture via callbacks — no langchain_core needed."""
+    graph = LangGraphAdapter(_MockLangGraph("I'll look that up.", tool_name="lookup"))
+    name = "demo_langgraph"
+
+    # -- Record ----------------------------------------------------------------
+    print("[langgraph] recording...")
+    with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+        result = graph.invoke("What is agentsnap?")
+        rec.output = result
+    print(f"[langgraph] snapshot written -> {name}.json")
+
+    # -- Assert (same inputs -> should pass) -----------------------------------
+    print("[langgraph] asserting (identical run)...")
+    with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        a.output = graph.invoke("What is agentsnap?")
+    print("[langgraph] OK passed")
+
+    # -- Simulate a regression (different node output) -------------------------
+    print("[langgraph] simulating regression (changed LLM response in node)...")
+    drifted_graph = LangGraphAdapter(_MockLangGraph("Completely different answer.", tool_name="lookup"))
+    try:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+            a.output = drifted_graph.invoke("What is agentsnap?")
+    except AgentRegressionError as e:
+        print(f"[langgraph] OK regression caught: {e.diff_report.failed_checks}")
+
+
 # -- Main ----------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -255,6 +312,7 @@ if __name__ == "__main__":
     cohere_demo(snap_dir)
     mistral_demo(snap_dir)
     groq_demo(snap_dir)
+    langgraph_demo(snap_dir)
 
     header("All providers complete")
     snapshots = list(Path(snap_dir).glob("*.json"))

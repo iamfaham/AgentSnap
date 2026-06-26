@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
+
+
+def test_demo_mock_exits_zero(tmp_path):
+    """demo_mock.py must complete successfully with no API keys."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "demo_mock.py"), f"--snapshot-dir={tmp_path / 'snaps'}"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"demo_mock.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "All providers complete" in result.stdout
+    assert "langgraph" in result.stdout.lower()
+
+
+def test_demo_real_exits_zero_without_keys(tmp_path):
+    """demo_real.py must skip all providers gracefully when no API keys are set."""
+    # Strip all provider keys so every section hits its skip branch
+    stripped_env = {
+        k: v for k, v in os.environ.items()
+        if not any(k.startswith(p) for p in [
+            "OPENROUTER", "ANTHROPIC", "OPENAI", "GEMINI",
+            "COHERE", "MISTRAL", "GROQ", "AGENTSNAP",
+        ])
+    }
+    stripped_env["AGENTSNAP_SKIP_DOTENV"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "demo_real.py")],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=stripped_env,
+    )
+    assert result.returncode == 0, (
+        f"demo_real.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "skipped" in result.stdout.lower()

@@ -32,6 +32,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addini("agentsnap_judge_base_url",     default=None,   help="Base URL for judge LLM API")
     parser.addini("agentsnap_semantic_threshold", default="0.92", help="Threshold for final output similarity")
     parser.addini("agentsnap_llm_threshold",      default="0.75", help="Threshold for intermediate LLM response similarity")
+    parser.addoption(
+        "--agentsnap-record",
+        action="store_true",
+        default=False,
+        help="Force re-record all agent snapshots, overwriting existing goldens.",
+    )
 
 
 def _ini(request: pytest.FixtureRequest, key: str, fallback: Any) -> Any:
@@ -106,11 +112,13 @@ class SnapshotFixture:
         semantic_threshold: float,
         llm_threshold: float,
         judge: LLMJudge | None,
+        force_record: bool = False,
     ) -> None:
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
         self.llm_threshold = llm_threshold
         self.judge = judge
+        self.force_record = force_record
 
     def run(
         self,
@@ -130,9 +138,10 @@ class SnapshotFixture:
                 s.output = my_agent(client, tool, "test input")
         """
         snap_exists = snapshot_path(test_name, self.snapshot_dir).exists()
+        is_record = not snap_exists or self.force_record
         recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model)
         asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge)
-        return _AutoContext(test_name, recorder, asserter, is_record=not snap_exists)
+        return _AutoContext(test_name, recorder, asserter, is_record=is_record)
 
     def record_agent(self, test_name: str, model: str = "unknown") -> AgentRecorder:
         """Explicit record mode."""
@@ -197,9 +206,11 @@ def snapshot(request: pytest.FixtureRequest) -> SnapshotFixture:
         judge_base_url = _ini(request, "agentsnap_judge_base_url", cfg["judge_base_url"])
         judge = LLMJudge(api_key=api_key, model=judge_model, base_url=judge_base_url)
 
+    force_record = request.config.getoption("--agentsnap-record", default=False)
     return SnapshotFixture(
         snapshot_dir=snapshot_dir,
         semantic_threshold=semantic_threshold,
         llm_threshold=llm_threshold,
         judge=judge,
+        force_record=force_record,
     )

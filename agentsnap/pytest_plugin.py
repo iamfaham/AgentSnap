@@ -76,7 +76,9 @@ class _AutoContext:
             print(f"\n  [agentsnap] recording '{self._test_name}'")
         else:
             self._ctx = self._asserter.__enter__()
-            print(f"\n  [agentsnap] asserting '{self._test_name}'")
+            if not self._asserter._record_mode:
+                print(f"\n  [agentsnap] asserting '{self._test_name}'")
+            # if _record_mode, AgentAsserter.__enter__ already printed the recording message
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

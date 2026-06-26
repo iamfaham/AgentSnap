@@ -42,7 +42,7 @@ from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.core.snapshot import last_run_path, snapshot_path
-from agentsnap.exceptions import AgentRegressionError, SnapshotNotFoundError
+from agentsnap.exceptions import AgentRegressionError
 
 SNAPSHOT_DIR = "__agent_snapshots__"
 SEPARATOR = "=" * 60
@@ -90,19 +90,9 @@ def step(msg: str) -> None:
 def run_provider(name: str, make_client_fn, call_agent_fn) -> None:
     snap_name = f"real_{name}"
     try:
-        print(f"[{name}] snapshot found -- asserting...")
         with AgentAsserter(snap_name, snapshot_dir=SNAPSHOT_DIR) as a:
             a.output = call_agent_fn(make_client_fn(), ToolAdapter(lookup, name="lookup"), "agentsnap")
-        print(f"[{name}] OK  no regression")
-    except SnapshotNotFoundError:
-        print(f"[{name}] no snapshot -- recording golden run...")
-        try:
-            with AgentRecorder(snap_name, snapshot_dir=SNAPSHOT_DIR, model=name) as rec:
-                rec.input_data = {"query": "agentsnap"}
-                rec.output = call_agent_fn(make_client_fn(), ToolAdapter(lookup, name="lookup"), "agentsnap")
-            print(f"[{name}] OK  snapshot written -> {snap_name}.json")
-        except Exception as e:
-            print(f"[{name}] ERROR: {type(e).__name__}: {e}")
+        print(f"[{name}] OK")
     except AgentRegressionError as e:
         print(f"[{name}] FAIL  regression: {e.diff_report.failed_checks}")
     except Exception as e:

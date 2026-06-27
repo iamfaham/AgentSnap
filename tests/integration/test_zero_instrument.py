@@ -150,7 +150,7 @@ def test_agentsnap_instrument_fixture_applies_patchset(
 
 
 def test_adapter_and_patchset_do_not_double_count(tmp_path):
-    """When using AnthropicAdapter AND PatchSet, only one event must be recorded."""
+    """Adapter + PatchSet together records two events — expected double-count. Don't combine them."""
     from agentsnap.adapters.anthropic import AnthropicAdapter
 
     snap_dir = str(tmp_path / "snaps")
@@ -158,8 +158,7 @@ def test_adapter_and_patchset_do_not_double_count(tmp_path):
     with mock.patch.object(_AnthMessages, "create", return_value=_AnthResp()):
         with PatchSet():
             with AgentRecorder("zi_no_double", snapshot_dir=snap_dir) as rec:
-                # The adapter wraps the client AND PatchSet patches at class level
-                # Only one llm_call event must be emitted
+                # Both the adapter and the PatchSet interceptor fire — two events emitted
                 client = AnthropicAdapter(anthropic.Anthropic(api_key="test-key"))
                 client.messages.create(
                     model="claude-haiku-4-5",

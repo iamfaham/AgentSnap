@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+from agentsnap.core.recorder import TraceAccumulator
+
+
+# ── Safe apply helper ──────────────────────────────────────────────────────────
+
+def _safe_apply(fn):
+    """Call fn(); return [] on any ImportError or AttributeError."""
+    try:
+        return fn()
+    except (ImportError, AttributeError):
+        return []
+
+
+# ── Anthropic ──────────────────────────────────────────────────────────────────
+
+def _apply_anthropic() -> list[tuple]:
+    from anthropic.resources.messages.messages import Messages
+
+    original = Messages.create
+
+    def _interceptor(self, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return original(self, **kwargs)
+        messages = kwargs.get("messages", [])
+        response = original(self, **kwargs)
+        text = ""
+        tokens = 0
+        if hasattr(response, "content"):
+            for block in response.content:
+                if hasattr(block, "text"):
+                    text += block.text
+        if hasattr(response, "usage"):
+            tokens = (
+                getattr(response.usage, "input_tokens", 0)
+                + getattr(response.usage, "output_tokens", 0)
+            )
+        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        return response
+
+    Messages.create = _interceptor
+    return [(Messages, "create", original)]
+
+
+# ── OpenAI (also covers Groq and OpenRouter — same SDK interface) ──────────────
+
+def _apply_openai() -> list[tuple]:
+    from openai.resources.chat.completions.completions import Completions
+
+    original = Completions.create
+
+    def _interceptor(self, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return original(self, **kwargs)
+        messages = kwargs.get("messages", [])
+        kwargs["stream"] = False
+        response = original(self, **kwargs)
+        text = ""
+        tokens = 0
+        if hasattr(response, "choices") and response.choices:
+            text = response.choices[0].message.content or ""
+        if hasattr(response, "usage"):
+            tokens = getattr(response.usage, "total_tokens", 0)
+        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        return response
+
+    Completions.create = _interceptor
+    return [(Completions, "create", original)]
+
+
+# ── Gemini (google-genai >= 1.0) ───────────────────────────────────────────────
+
+def _apply_gemini() -> list[tuple]:
+    from google.genai.models import Models  # type: ignore[import]
+
+    original = Models.generate_content
+
+    def _interceptor(self, *, model: str, contents, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return original(self, model=model, contents=contents, **kwargs)
+        if isinstance(contents, str):
+            messages = [{"role": "user", "content": contents}]
+        elif isinstance(contents, list):
+            messages = contents
+        else:
+            messages = [{"role": "user", "content": str(contents)}]
+        response = original(self, model=model, contents=contents, **kwargs)
+        text = ""
+        tokens = 0
+        if hasattr(response, "text"):
+            text = response.text or ""
+        elif hasattr(response, "candidates") and response.candidates:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "text"):
+                    text += part.text
+        if hasattr(response, "usage_metadata"):
+            tokens = getattr(response.usage_metadata, "total_token_count", 0)
+        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        return response
+
+    Models.generate_content = _interceptor
+    return [(Models, "generate_content", original)]
+
+
+# ── Cohere (cohere >= 5.0) ────────────────────────────────────────────────────
+
+def _apply_cohere() -> list[tuple]:
+    import cohere  # type: ignore[import]
+
+    cls = cohere.ClientV2
+    original = cls.chat
+
+    def _interceptor(self, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return original(self, **kwargs)
+        messages = kwargs.get("messages", [])
+        response = original(self, **kwargs)
+        text = ""
+        tokens = 0
+        if hasattr(response, "message") and hasattr(response.message, "content"):
+            for block in response.message.content:
+                if hasattr(block, "text"):
+                    text += block.text
+        if hasattr(response, "usage"):
+            tokens = getattr(response.usage, "tokens", None)
+            if tokens is None:
+                inp = getattr(response.usage, "input_tokens", 0) or 0
+                out = getattr(response.usage, "output_tokens", 0) or 0
+                tokens = inp + out
+        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens or 0})
+        return response
+
+    cls.chat = _interceptor
+    return [(cls, "chat", original)]
+
+
+# ── Mistral (mistralai >= 1.0) ────────────────────────────────────────────────
+
+def _apply_mistral() -> list[tuple]:
+    # Try known class paths; return [] if neither exists.
+    cls = None
+    try:
+        from mistralai.resources.chat import Chat as _Chat  # type: ignore[import]
+        cls = _Chat
+    except (ImportError, AttributeError):
+        pass
+    if cls is None:
+        try:
+            from mistralai.sync_client import Chat as _Chat2  # type: ignore[import]
+            cls = _Chat2
+        except (ImportError, AttributeError):
+            return []
+
+    original = cls.complete
+
+    def _interceptor(self, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return original(self, **kwargs)
+        messages = kwargs.get("messages", [])
+        kwargs["stream"] = False
+        response = original(self, **kwargs)
+        text = ""
+        tokens = 0
+        if hasattr(response, "choices") and response.choices:
+            text = response.choices[0].message.content or ""
+        if hasattr(response, "usage"):
+            tokens = getattr(response.usage, "total_tokens", 0) or 0
+        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        return response
+
+    cls.complete = _interceptor
+    return [(cls, "complete", original)]
+
+
+# ── PatchSet ──────────────────────────────────────────────────────────────────
+
+_PATCHER_FNS = [
+    _apply_anthropic,
+    _apply_openai,
+    _apply_gemini,
+    _apply_cohere,
+    _apply_mistral,
+]
+
+
+class PatchSet:
+    """Context manager that monkey-patches all installed LLM SDKs.
+
+    Intercepts LLM calls at the SDK class level so any client — wrapped or
+    unwrapped — is captured by an active TraceAccumulator. Patchers for
+    SDKs that are not installed are silently skipped.
+
+    Usage::
+
+        with PatchSet():
+            client = anthropic.Anthropic()   # no AnthropicAdapter needed
+            with AgentRecorder("my_test") as rec:
+                rec.output = my_agent(client, "query")
+    """
+
+    def __init__(self) -> None:
+        self._applied: list[tuple] = []
+
+    def __enter__(self) -> PatchSet:
+        for fn in _PATCHER_FNS:
+            self._applied.extend(_safe_apply(fn))
+        return self
+
+    def __exit__(self, *args) -> None:
+        for cls, attr, original in self._applied:
+            setattr(cls, attr, original)
+        self._applied.clear()

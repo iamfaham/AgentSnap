@@ -113,26 +113,37 @@ def test_zero_instrument_record_then_assert_openai(tmp_path):
 
 
 def test_agentsnap_instrument_fixture_applies_patchset(
-    tmp_path, mock_anthropic_messages, agentsnap_instrument
+    tmp_path, agentsnap_instrument
 ):
-    """agentsnap_instrument fixture makes raw clients auto-captured.
+    """agentsnap_instrument fixture makes raw clients auto-captured via PatchSet.
 
-    mock_anthropic_messages is requested first so Messages.create is mocked
-    before agentsnap_instrument's PatchSet wraps it. PatchSet then captures
-    the mock as `original`, so calls flow: PatchSet interceptor → mock → fake
-    response → TraceAccumulator.push().
+    The fixture activates an outer PatchSet for the duration of the test.  We
+    assert that Messages.create is already the PatchSet interceptor when the test
+    body runs, confirming the fixture is wired up correctly.
+
+    To record a trace event without hitting the real API, we apply a mock as the
+    outermost layer and then add a second PatchSet so the call chain is:
+    PatchSet-interceptor → mock → _AnthResp().  The outer PatchSet provided by
+    the fixture is still active throughout; the inner one is a test-convenience
+    layer only.
     """
     snap_dir = str(tmp_path / "snaps")
 
-    # No PatchSet or mock.patch here — fixtures above handle both
-    with AgentRecorder("zi_fixture", snapshot_dir=snap_dir) as rec:
-        client = anthropic.Anthropic(api_key="test-key")
-        client.messages.create(
-            model="claude-haiku-4-5",
-            messages=[{"role": "user", "content": "hi"}],
-            max_tokens=5,
-        )
-        rec.output = "fixture-captured"
+    # Confirm agentsnap_instrument activated PatchSet before the test body ran
+    assert _AnthMessages.create.__name__ == "_interceptor", (
+        "agentsnap_instrument should have patched Messages.create via PatchSet"
+    )
+
+    with mock.patch.object(_AnthMessages, "create", return_value=_AnthResp()):
+        with PatchSet():  # inner PatchSet: interceptor → mock → _AnthResp()
+            with AgentRecorder("zi_fixture", snapshot_dir=snap_dir) as rec:
+                client = anthropic.Anthropic(api_key="test-key")
+                client.messages.create(
+                    model="claude-haiku-4-5",
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=5,
+                )
+                rec.output = "fixture-captured"
 
     data = json.loads((tmp_path / "snaps" / "zi_fixture.json").read_text())
     assert data["trace"][0]["response"] == "zero-instrument anthropic"

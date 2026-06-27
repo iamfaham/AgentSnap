@@ -9,8 +9,6 @@ from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.diff import LLMJudge
 from agentsnap.core.recorder import AgentRecorder
 from agentsnap.core.snapshot import snapshot_path
-from agentsnap.exceptions import SnapshotNotFoundError
-
 
 # -- pytest ini options -------------------------------------------------------
 
@@ -37,6 +35,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Force re-record all agent snapshots, overwriting existing goldens.",
+    )
+    parser.addoption(
+        "--agentsnap-instrument",
+        action="store_true",
+        default=False,
+        help="Auto-patch all installed LLM SDKs for zero-instrumentation capture.",
     )
 
 
@@ -185,14 +189,40 @@ class SnapshotFixture:
 
 
 @pytest.fixture
-def snapshot(request: pytest.FixtureRequest) -> SnapshotFixture:
+def agentsnap_instrument():
+    """Zero-instrumentation: patches all installed LLM SDK methods for this test.
+
+    Allows raw SDK clients (anthropic.Anthropic(), openai.OpenAI(), etc.) to be
+    captured by agentsnap without wrapping them in adapter classes.
+
+    Usage in conftest.py for project-wide auto-instrumentation::
+
+        @pytest.fixture(autouse=True)
+        def _(agentsnap_instrument):
+            pass
+
+    Or per-test::
+
+        def test_my_agent(snapshot, agentsnap_instrument):
+            with snapshot.run("test") as s:
+                s.output = my_agent(anthropic.Anthropic(), "query")
+    """
+    from agentsnap.patches import PatchSet
+    with PatchSet():
+        yield
+
+
+@pytest.fixture
+def snapshot(request: pytest.FixtureRequest):
     """Provides run(), record_agent(), and assert_agent() context managers.
 
     Configured automatically from env vars and [tool.agentsnap] in pyproject.toml.
     The LLM judge is enabled automatically when OPENROUTER_API_KEY (or any
     matching provider key) is found in the environment.
+
+    Pass --agentsnap-instrument to also patch all installed LLM SDKs so raw
+    clients are captured without adapter wrapping.
     """
-    import os
     from agentsnap.config import load
 
     snapshot_dir = _find_snapshot_dir(request)
@@ -209,10 +239,19 @@ def snapshot(request: pytest.FixtureRequest) -> SnapshotFixture:
         judge = LLMJudge(api_key=api_key, model=judge_model, base_url=judge_base_url)
 
     force_record = request.config.getoption("--agentsnap-record", default=False)
-    return SnapshotFixture(
+    instrument   = request.config.getoption("--agentsnap-instrument", default=False)
+
+    fixture = SnapshotFixture(
         snapshot_dir=snapshot_dir,
         semantic_threshold=semantic_threshold,
         llm_threshold=llm_threshold,
         judge=judge,
         force_record=force_record,
     )
+
+    if instrument:
+        from agentsnap.patches import PatchSet
+        with PatchSet():
+            yield fixture
+    else:
+        yield fixture

@@ -26,7 +26,7 @@ from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
 from agentsnap.exceptions import AgentRegressionError
-from agentsnap.patches import PatchSet
+from agentsnap import PatchSet
 
 # -- Generic mock response shapes ---------------------------------------------
 

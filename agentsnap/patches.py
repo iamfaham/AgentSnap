@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 from agentsnap.core.recorder import TraceAccumulator
 
 
@@ -20,12 +22,12 @@ def _apply_anthropic() -> list[tuple]:
 
     original = Messages.create
 
-    def _interceptor(self, **kwargs):
+    def _interceptor(self, *args, **kwargs):
         acc = TraceAccumulator.current()
         if acc is None:
-            return original(self, **kwargs)
+            return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
-        response = original(self, **kwargs)
+        response = original(self, *args, **kwargs)
         text = ""
         tokens = 0
         if hasattr(response, "content"):
@@ -51,13 +53,13 @@ def _apply_openai() -> list[tuple]:
 
     original = Completions.create
 
-    def _interceptor(self, **kwargs):
+    def _interceptor(self, *args, **kwargs):
         acc = TraceAccumulator.current()
         if acc is None:
-            return original(self, **kwargs)
+            return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
         kwargs["stream"] = False
-        response = original(self, **kwargs)
+        response = original(self, *args, **kwargs)
         text = ""
         tokens = 0
         if hasattr(response, "choices") and response.choices:
@@ -114,12 +116,12 @@ def _apply_cohere() -> list[tuple]:
     cls = cohere.ClientV2
     original = cls.chat
 
-    def _interceptor(self, **kwargs):
+    def _interceptor(self, *args, **kwargs):
         acc = TraceAccumulator.current()
         if acc is None:
-            return original(self, **kwargs)
+            return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
-        response = original(self, **kwargs)
+        response = original(self, *args, **kwargs)
         text = ""
         tokens = 0
         if hasattr(response, "message") and hasattr(response.message, "content"):
@@ -158,13 +160,13 @@ def _apply_mistral() -> list[tuple]:
 
     original = cls.complete
 
-    def _interceptor(self, **kwargs):
+    def _interceptor(self, *args, **kwargs):
         acc = TraceAccumulator.current()
         if acc is None:
-            return original(self, **kwargs)
+            return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
         kwargs["stream"] = False
-        response = original(self, **kwargs)
+        response = original(self, *args, **kwargs)
         text = ""
         tokens = 0
         if hasattr(response, "choices") and response.choices:
@@ -196,6 +198,12 @@ class PatchSet:
     unwrapped — is captured by an active TraceAccumulator. Patchers for
     SDKs that are not installed are silently skipped.
 
+    .. warning::
+        Do **not** combine ``PatchSet`` with agentsnap adapters (e.g.
+        ``AnthropicAdapter``) on the same client. Both the adapter and the
+        PatchSet interceptor will fire, silently recording every LLM call
+        twice. Use one or the other, not both.
+
     Usage::
 
         with PatchSet():
@@ -209,7 +217,17 @@ class PatchSet:
 
     def __enter__(self) -> PatchSet:
         for fn in _PATCHER_FNS:
-            self._applied.extend(_safe_apply(fn))
+            patches = _safe_apply(fn)
+            for cls, attr, original in patches:
+                if getattr(original, "__name__", None) == "_interceptor":
+                    warnings.warn(
+                        f"PatchSet is patching {cls.__name__}.{attr} which is already patched "
+                        "(by an agentsnap adapter or a nested PatchSet). "
+                        "LLM events will be recorded twice. "
+                        "Use PatchSet OR adapters, not both.",
+                        stacklevel=2,
+                    )
+            self._applied.extend(patches)
         return self
 
     def __exit__(self, *args) -> None:

@@ -254,4 +254,4 @@ def snapshot(request: pytest.FixtureRequest):
         with PatchSet():
             yield fixture
     else:
-        yield fixture
+        yield fixture  # yield (not return) so pytest runs fixture teardown correctly

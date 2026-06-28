@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Deterministic snapshot testing harness for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Syed Mohammad Faham", email = "m.faham.s@gmail.com" },
+]
 dependencies = [
     "anthropic>=0.25",
     "openai>=1.0",

@@ -131,3 +131,28 @@ def judge_from_env(start: Path | None = None):
         model=cfg["judge_model"],
         base_url=cfg["judge_base_url"],
     )
+
+
+def write_config(path: Path, updates: dict[str, Any]) -> None:
+    """Merge *updates* into [tool.agentsnap] in the TOML file at *path*.
+
+    Creates the file (and the section) if either is absent.
+    Preserves all existing keys, comments, and other sections.
+    """
+    import tomlkit
+
+    if path.exists():
+        doc = tomlkit.parse(path.read_text(encoding="utf-8"))
+    else:
+        doc = tomlkit.document()
+
+    if "tool" not in doc:
+        doc.add("tool", tomlkit.table())
+
+    if "agentsnap" not in doc["tool"]:
+        doc["tool"].add("agentsnap", tomlkit.table())
+
+    for key, value in updates.items():
+        doc["tool"]["agentsnap"][key] = value
+
+    path.write_text(tomlkit.dumps(doc), encoding="utf-8")

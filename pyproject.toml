@@ -16,6 +16,7 @@ dependencies = [
     "pytest>=7.0",
     "numpy>=1.24",
     "python-dotenv>=1.0",
+    "tomlkit>=0.12",
     "tomli>=2.0; python_version < '3.11'",
 ]
 

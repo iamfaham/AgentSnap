@@ -16,3 +16,5 @@ wheels/
 __agent_snapshots__/
 
 .env
+
+docs/

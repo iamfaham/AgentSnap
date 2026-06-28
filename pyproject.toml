@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-    { name = "Syed Mohammad Faham", email = "m.faham.s@gmail.com" },
+    { name = "Syed Mohammad Faham", email = "iamfaham5@gmail.com" },
 ]
 dependencies = [
     "anthropic>=0.25",

@@ -184,3 +184,8 @@ def test_patchset_skips_uninstalled_sdk(monkeypatch):
     with PatchSet():
         assert _AnthMessages.create is not original_anth  # Anthropic still patched
     assert _AnthMessages.create is original_anth
+
+
+def test_patchset_importable_from_top_level():
+    from agentsnap import PatchSet as _PS
+    assert _PS is PatchSet

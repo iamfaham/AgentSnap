@@ -49,3 +49,15 @@ def test_demo_real_exits_zero_without_keys(tmp_path):
         f"STDERR:\n{result.stderr}"
     )
     assert "skipped" in result.stdout.lower()
+
+
+def test_demo_mock_includes_zero_instrumentation(tmp_path):
+    """demo_mock.py stdout must mention zero-instrumentation."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "demo_mock.py"), f"--snapshot-dir={tmp_path / 'snaps'}"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert "zero" in result.stdout.lower() or "instrument" in result.stdout.lower(), (
+        "demo_mock.py should mention zero-instrumentation in its output"
+    )

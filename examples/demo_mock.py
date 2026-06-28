@@ -26,6 +26,7 @@ from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
 from agentsnap.exceptions import AgentRegressionError
+from agentsnap.patches import PatchSet
 
 # -- Generic mock response shapes ---------------------------------------------
 
@@ -261,6 +262,71 @@ def groq_demo(snapshot_dir: str) -> None:
     run_demo("groq", make, call, snapshot_dir)
 
 
+def zero_instrumentation_demo(snapshot_dir: str) -> None:
+    """Shows that raw SDK clients work without any adapter wrapping."""
+    import anthropic
+    import unittest.mock as mock
+    from anthropic.resources.messages.messages import Messages as _AnthMessages
+
+    name = "demo_zero_instrument"
+
+    class _FakeContent:
+        text = "I'll look that up."
+
+    class _FakeResp:
+        content = [_FakeContent()]
+        class usage:
+            input_tokens = 5
+            output_tokens = 10
+
+    def _agent(query: str) -> str:
+        # Raw client — no AnthropicAdapter wrapping
+        client = anthropic.Anthropic(api_key="demo-key-no-real-call")
+        client.messages.create(
+            model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": query}],
+            max_tokens=50,
+        )
+        result = lookup(query)
+        return f"Result: {result}"
+
+    # -- Record ----------------------------------------------------------------
+    print("[zero-instrumentation] recording (raw client, no adapter)...")
+    with mock.patch.object(_AnthMessages, "create", return_value=_FakeResp()):
+        with PatchSet():
+            with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+                rec.output = _agent("What is agentsnap?")
+    print(f"[zero-instrumentation] snapshot written -> {name}.json")
+
+    # -- Assert (same inputs -> should pass) -----------------------------------
+    print("[zero-instrumentation] asserting (identical run)...")
+    with mock.patch.object(_AnthMessages, "create", return_value=_FakeResp()):
+        with PatchSet():
+            with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+                a.output = _agent("What is agentsnap?")
+    print("[zero-instrumentation] OK passed")
+
+    # -- Simulate a regression -------------------------------------------------
+    print("[zero-instrumentation] simulating regression (different LLM response)...")
+
+    class _DriftedContent:
+        text = "Completely different answer."
+
+    class _DriftedResp:
+        content = [_DriftedContent()]
+        class usage:
+            input_tokens = 5
+            output_tokens = 10
+
+    try:
+        with mock.patch.object(_AnthMessages, "create", return_value=_DriftedResp()):
+            with PatchSet():
+                with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+                    a.output = _agent("What is agentsnap?")
+    except AgentRegressionError as e:
+        print(f"[zero-instrumentation] OK regression caught: {e.diff_report.failed_checks}")
+
+
 def langgraph_demo(snapshot_dir: str) -> None:
     """Demonstrates node-level capture via callbacks — no langchain_core needed."""
     graph = LangGraphAdapter(_MockLangGraph("I'll look that up.", tool_name="lookup"))
@@ -313,6 +379,7 @@ if __name__ == "__main__":
     mistral_demo(snap_dir)
     groq_demo(snap_dir)
     langgraph_demo(snap_dir)
+    zero_instrumentation_demo(snap_dir)
 
     header("All providers complete")
     snapshots = list(Path(snap_dir).glob("*.json"))

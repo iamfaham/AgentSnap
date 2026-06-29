@@ -115,6 +115,92 @@ def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
     click.echo(f"Updated snapshot: {dst}")
 
 
+@cli.command("init")
+def init_cmd() -> None:
+    """Interactive setup wizard — choose LLM judge or offline embeddings."""
+    from agentsnap.setup_wizard import (
+        _download_model,
+        apply_result,
+        run_wizard,
+        test_judge_connection,
+    )
+
+    result = run_wizard()
+    project_dir = Path.cwd()
+    apply_result(result, project_dir)
+
+    if result.backend == "offline":
+        if result.pre_download_model:
+            click.echo("\nDownloading all-MiniLM-L6-v2...")
+            _download_model()
+            click.echo("  Model cached.")
+        else:
+            click.echo(
+                "\nModel will download automatically on first test run (~22 MB)."
+            )
+        click.echo("\nOffline embeddings configured.")
+    else:
+        click.echo("\nTesting connection...")
+        try:
+            latency = test_judge_connection(
+                base_url=result.judge_base_url,
+                model=result.judge_model,
+                api_key=result.api_key,
+            )
+            click.echo(f"  Connection ok ({latency:.1f}s)")
+        except RuntimeError as exc:
+            click.echo(f"  Warning: {exc}", err=True)
+            click.echo(
+                "  Setup saved anyway — fix the key and re-run `agentsnap check`."
+            )
+
+        if result.save_key_to_env:
+            click.echo(f"  API key written to .env ({result.api_key_env_var})")
+        click.echo("\nLLM judge configured.")
+
+    click.echo("Configuration written to pyproject.toml.")
+    click.echo("\nRun `pytest` to verify everything works.")
+
+
+@cli.command("check")
+def check_cmd() -> None:
+    """Verify current agentsnap setup and backend connectivity."""
+    import sys
+
+    from agentsnap import config
+    from agentsnap.setup_wizard import check_offline_model, test_judge_connection
+
+    cfg = config.load(Path.cwd())
+    api_key = cfg.get("judge_api_key")
+
+    if api_key:
+        click.echo("Backend : LLM judge")
+        click.echo(f"Provider: {cfg['judge_base_url']}")
+        click.echo(f"Model   : {cfg['judge_model']}")
+        click.echo("API key : found")
+        try:
+            latency = test_judge_connection(
+                base_url=cfg["judge_base_url"],
+                model=cfg["judge_model"],
+                api_key=api_key,
+            )
+            click.echo(f"Status  : ok ({latency:.2f}s)")
+        except RuntimeError as exc:
+            click.echo(f"Status  : error — {exc}", err=True)
+            sys.exit(1)
+    else:
+        cached = check_offline_model()
+        click.echo("Backend : offline embeddings (all-MiniLM-L6-v2)")
+        if cached:
+            click.echo(f"Model   : cached at {cached}")
+            click.echo("Status  : ok")
+        else:
+            click.echo(
+                "Model   : not cached — will download (~22 MB) on first test run"
+            )
+            click.echo("Status  : ok (will download on first run)")
+
+
 @cli.command("list")
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 def list_cmd(snapshot_dir: str) -> None:

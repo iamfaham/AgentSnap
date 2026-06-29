@@ -452,7 +452,7 @@ llm_threshold      = 0.80
 
 ## LLM judge
 
-The default semantic comparison uses cosine similarity on embeddings (`all-MiniLM-L6-v2`, runs offline). For factual agents where meaning matters more than phrasing similarity, the LLM judge gives more accurate results.
+Without any setup, agentsnap falls back to cosine similarity on embeddings (`all-MiniLM-L6-v2`, runs offline). The setup wizard defaults to the LLM judge because it gives more accurate results for factual agents — embeddings are the fallback when no API key is configured.
 
 The easiest way to configure the LLM judge is via the setup wizard:
 

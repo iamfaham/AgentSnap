@@ -22,7 +22,27 @@ If any dimension drifts beyond its threshold, `agentsnap` raises `AgentRegressio
 pip install agentsnap
 ```
 
-### 2 — Wrap your client and run
+### 2 — Run setup
+
+```bash
+agentsnap init
+```
+
+Asks you to choose a semantic comparison backend:
+
+| Option | What it needs | Best for |
+|--------|--------------|----------|
+| **[1] LLM judge** (default) | API key (OpenRouter, OpenAI, Anthropic, or custom) | Factual agents, highest accuracy |
+| **[2] Offline embeddings** | Nothing — ~22 MB model download, runs anywhere | Any machine, no API key |
+| **[3] Local LLM judge** | *(coming soon)* | Strong local machine, no cloud |
+
+The wizard saves your choice to `pyproject.toml` and your API key (if any) to `.env`. Keys are never written to `pyproject.toml`.
+
+```bash
+agentsnap check   # verify your setup at any time
+```
+
+### 3 — Wrap your client and run
 
 ```python
 from agentsnap import AgentRecorder, AgentAsserter
@@ -40,7 +60,7 @@ with AgentRecorder("my_agent") as rec:
 # Writes __agent_snapshots__/my_agent.json — commit this file
 ```
 
-### 3 — Assert on future runs
+### 4 — Assert on future runs
 
 ```python
 with AgentAsserter("my_agent") as a:
@@ -49,7 +69,7 @@ with AgentAsserter("my_agent") as a:
 # Raises AgentRegressionError if behavior drifted
 ```
 
-### 4 — Use the pytest fixture (simplest)
+### 5 — Use the pytest fixture (simplest)
 
 `snapshot.run()` auto-records on first call and auto-asserts on every run after that — no need to switch between `AgentRecorder` and `AgentAsserter`:
 
@@ -299,6 +319,8 @@ def test_agent(snapshot, agentsnap_instrument):
 ## CLI
 
 ```bash
+agentsnap init                                     # interactive setup wizard — choose backend and save config
+agentsnap check                                    # verify current backend is working (exits 0/1)
 agentsnap list                                     # list all snapshots
 agentsnap diff __agent_snapshots__/my_agent.json   # pretty-print a snapshot
 agentsnap update my_agent                          # show diff and approve last run as new golden

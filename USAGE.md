@@ -8,18 +8,19 @@ This guide walks through everything you need to use agentsnap effectively — fr
 
 1. [How it works](#how-it-works)
 2. [Installation](#installation)
-3. [Your first snapshot](#your-first-snapshot)
-4. [Choosing an instrumentation style](#choosing-an-instrumentation-style)
-5. [Using adapters](#using-adapters)
-6. [Zero-instrumentation with PatchSet](#zero-instrumentation-with-patchset)
-7. [pytest integration](#pytest-integration)
-8. [LangGraph](#langgraph)
-9. [Reviewing and approving changes](#reviewing-and-approving-changes)
-10. [Configuration](#configuration)
-11. [Understanding diff results](#understanding-diff-results)
-12. [Tuning thresholds](#tuning-thresholds)
-13. [LLM judge](#llm-judge)
-14. [CI setup](#ci-setup)
+3. [Setup](#setup)
+4. [Your first snapshot](#your-first-snapshot)
+5. [Choosing an instrumentation style](#choosing-an-instrumentation-style)
+6. [Using adapters](#using-adapters)
+7. [Zero-instrumentation with PatchSet](#zero-instrumentation-with-patchset)
+8. [pytest integration](#pytest-integration)
+9. [LangGraph](#langgraph)
+10. [Reviewing and approving changes](#reviewing-and-approving-changes)
+11. [Configuration](#configuration)
+12. [Understanding diff results](#understanding-diff-results)
+13. [Tuning thresholds](#tuning-thresholds)
+14. [LLM judge](#llm-judge)
+15. [CI setup](#ci-setup)
 
 ---
 
@@ -60,6 +61,59 @@ For development (includes test dependencies):
 ```bash
 pip install -e ".[dev]"
 ```
+
+---
+
+## Setup
+
+After installing, run the setup wizard to choose your semantic comparison backend:
+
+```bash
+agentsnap init
+```
+
+The wizard presents three options:
+
+**[1] LLM judge — API (recommended, default)**
+Calls a small LLM to score whether two responses are semantically equivalent. More accurate for factual agents. Requires an API key from one of:
+- OpenRouter (recommended — one key gives access to many models)
+- OpenAI, Anthropic, or any OpenAI-compatible provider
+
+The wizard saves your key to `.env` — never to `pyproject.toml` (which gets committed to git).
+
+**[2] Offline embeddings — all-MiniLM-L6-v2**
+Uses cosine similarity between sentence embeddings. No API key, no internet after first use. The 22 MB model downloads once and is cached permanently. Runs on any machine including budget cloud VMs (CPU only, ~500 MB RAM).
+
+Requires `sentence-transformers` to be installed. Choose this if you have no API key or need fully air-gapped operation.
+
+**[3] Local LLM judge — coming soon**
+Run the judge on your own machine using a locally hosted model (Ollama, llama.cpp, or any OpenAI-compatible local server). This option is visible in the menu but not yet selectable — it will be available in a future release.
+
+---
+
+Verify your setup at any time:
+
+```bash
+agentsnap check
+```
+
+Output example (LLM judge):
+```
+Backend : LLM judge
+Provider: https://openrouter.ai/api/v1
+Model   : openai/gpt-4o-mini
+API key : found
+Status  : ok (0.42s)
+```
+
+Output example (offline embeddings):
+```
+Backend : offline embeddings (all-MiniLM-L6-v2)
+Model   : cached at ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
+Status  : ok
+```
+
+`agentsnap check` exits 0 on success and 1 on failure, making it safe to use in CI health checks.
 
 ---
 
@@ -399,6 +453,15 @@ llm_threshold      = 0.80
 ## LLM judge
 
 The default semantic comparison uses cosine similarity on embeddings (`all-MiniLM-L6-v2`, runs offline). For factual agents where meaning matters more than phrasing similarity, the LLM judge gives more accurate results.
+
+The easiest way to configure the LLM judge is via the setup wizard:
+
+```bash
+agentsnap init   # choose [1] LLM judge and enter your API key
+agentsnap check  # verify the connection is working
+```
+
+You can also configure it manually:
 
 ```python
 from agentsnap import LLMJudge

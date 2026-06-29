@@ -74,7 +74,11 @@ def apply_result(result: WizardResult, project_dir: Path) -> None:
 
 
 def _write_env_key(env_path: Path, key: str, value: str) -> None:
-    """Add or update KEY=value in .env without touching other lines."""
+    """Add or update KEY=value in .env without touching other lines.
+
+    Writes with mode 0o600 (owner-read-only) to protect API keys.
+    On Windows the mode bits are ignored by the OS but the call is harmless.
+    """
     if env_path.exists():
         lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
         new_lines = []
@@ -87,9 +91,19 @@ def _write_env_key(env_path: Path, key: str, value: str) -> None:
                 new_lines.append(line)
         if not updated:
             new_lines.append(f"{key}={value}\n")
-        env_path.write_text("".join(new_lines), encoding="utf-8")
+        data = "".join(new_lines)
     else:
-        env_path.write_text(f"{key}={value}\n", encoding="utf-8")
+        data = f"{key}={value}\n"
+
+    fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+    finally:
+        try:
+            os.chmod(env_path, 0o600)
+        except OSError:
+            pass
 
 
 def test_judge_connection(base_url: str, model: str, api_key: str) -> float:

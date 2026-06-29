@@ -72,6 +72,7 @@ def test_write_config_sets_string_and_float(tmp_path):
 from agentsnap.setup_wizard import (
     PROVIDERS,
     WizardResult,
+    _write_env_key,
     apply_result,
     check_offline_model,
     test_judge_connection,
@@ -113,10 +114,9 @@ def test_providers_has_required_keys():
         assert "label" in preset, f"{name} missing label"
 
 
-def test_providers_includes_openrouter_openai_anthropic_custom():
+def test_providers_includes_openrouter_openai_custom():
     assert "openrouter" in PROVIDERS
     assert "openai" in PROVIDERS
-    assert "anthropic" in PROVIDERS
     assert "custom" in PROVIDERS
 
 
@@ -196,6 +196,15 @@ def test_apply_result_env_updates_existing_key(tmp_path):
     assert "OPENROUTER_API_KEY=new-key" in content
     assert "old-key" not in content
     assert content.count("OPENROUTER_API_KEY") == 1
+
+
+def test_write_env_key_appends_when_no_trailing_newline(tmp_path):
+    """Appending to .env without trailing newline must not mangle the file."""
+    env = tmp_path / ".env"
+    env.write_text("EXISTING=val", encoding="utf-8")  # no trailing newline
+    _write_env_key(env, "NEW_KEY", "newval")
+    lines = env.read_text(encoding="utf-8").splitlines()
+    assert lines == ["EXISTING=val", "NEW_KEY=newval"]
 
 
 # ── test_judge_connection ─────────────────────────────────────────────────────

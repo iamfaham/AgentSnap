@@ -21,12 +21,6 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "default_model": "gpt-4o-mini",
         "env_var":       "OPENAI_API_KEY",
     },
-    "anthropic": {
-        "label":         "Anthropic",
-        "base_url":      "https://api.anthropic.com",
-        "default_model": "claude-haiku-4-5-20251001",
-        "env_var":       "ANTHROPIC_API_KEY",
-    },
     "custom": {
         "label":         "Custom (any OpenAI-compatible endpoint)",
         "base_url":      None,
@@ -90,6 +84,8 @@ def _write_env_key(env_path: Path, key: str, value: str) -> None:
             else:
                 new_lines.append(line)
         if not updated:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines[-1] += "\n"
             new_lines.append(f"{key}={value}\n")
         data = "".join(new_lines)
     else:

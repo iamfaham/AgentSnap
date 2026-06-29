@@ -165,8 +165,6 @@ def init_cmd() -> None:
 @cli.command("check")
 def check_cmd() -> None:
     """Verify current agentsnap setup and backend connectivity."""
-    import sys
-
     from agentsnap import config
     from agentsnap.setup_wizard import check_offline_model, test_judge_connection
 
@@ -175,19 +173,21 @@ def check_cmd() -> None:
 
     if api_key:
         click.echo("Backend : LLM judge")
-        click.echo(f"Provider: {cfg['judge_base_url']}")
-        click.echo(f"Model   : {cfg['judge_model']}")
+        judge_base_url = cfg.get("judge_base_url", "https://openrouter.ai/api/v1")
+        judge_model = cfg.get("judge_model", "openai/gpt-4o-mini")
+        click.echo(f"Provider: {judge_base_url}")
+        click.echo(f"Model   : {judge_model}")
         click.echo("API key : found")
         try:
             latency = test_judge_connection(
-                base_url=cfg["judge_base_url"],
-                model=cfg["judge_model"],
+                base_url=judge_base_url,
+                model=judge_model,
                 api_key=api_key,
             )
             click.echo(f"Status  : ok ({latency:.2f}s)")
         except RuntimeError as exc:
             click.echo(f"Status  : error — {exc}", err=True)
-            sys.exit(1)
+            raise SystemExit(1)
     else:
         cached = check_offline_model()
         click.echo("Backend : offline embeddings (all-MiniLM-L6-v2)")

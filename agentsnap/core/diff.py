@@ -15,6 +15,16 @@ _embedding_model = None
 def _get_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
     global _embedding_model
     if _embedding_model is None:
+        import os
+        from pathlib import Path
+        cache_str = os.getenv("HF_HOME") or os.getenv("HUGGINGFACE_HUB_CACHE")
+        cache_root = Path(cache_str) if cache_str else Path.home() / ".cache" / "huggingface" / "hub"
+        model_dir = cache_root / "models--sentence-transformers--all-MiniLM-L6-v2"
+        if not model_dir.exists():
+            raise RuntimeError(
+                "No semantic backend configured.\n"
+                "Run 'agentsnap init' to set up your comparison backend."
+            )
         from sentence_transformers import SentenceTransformer
         _embedding_model = SentenceTransformer(model_name)
     return _embedding_model

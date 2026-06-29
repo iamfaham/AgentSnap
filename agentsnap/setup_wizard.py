@@ -13,13 +13,13 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "label":         "OpenRouter (recommended — many models, one key)",
         "base_url":      "https://openrouter.ai/api/v1",
         "default_model": "openai/gpt-4o-mini",
-        "env_var":       "OPENROUTER_API_KEY",
+        "env_var":       "AGENTSNAP_JUDGE_API_KEY",
     },
     "openai": {
         "label":         "OpenAI",
         "base_url":      "https://api.openai.com/v1",
         "default_model": "gpt-4o-mini",
-        "env_var":       "OPENAI_API_KEY",
+        "env_var":       "AGENTSNAP_JUDGE_API_KEY",
     },
     "custom": {
         "label":         "Custom (any OpenAI-compatible endpoint)",
@@ -206,12 +206,19 @@ def run_wizard() -> WizardResult:
         base_url      = click.prompt("Base URL (e.g. https://api.openai.com/v1)")
         default_model = click.prompt("Model name")
 
-    model   = click.prompt("Model", default=default_model)
-    api_key = click.prompt("API key", hide_input=True)
-    save_key = click.confirm(
-        f"\nSave to .env as {env_var}? (recommended — keeps key out of code)",
-        default=True,
-    )
+    model = click.prompt("Model", default=default_model)
+
+    existing_key = os.environ.get("AGENTSNAP_JUDGE_API_KEY")
+    if existing_key:
+        click.echo("  Using existing AGENTSNAP_JUDGE_API_KEY from environment.")
+        api_key  = existing_key
+        save_key = False
+    else:
+        api_key  = click.prompt("API key", hide_input=True)
+        save_key = click.confirm(
+            f"\nSave to .env as {env_var}? (recommended — keeps key out of code)",
+            default=True,
+        )
 
     return WizardResult(
         backend="judge",

@@ -97,7 +97,7 @@ def test_wizard_result_judge():
         judge_model="openai/gpt-4o-mini",
         judge_base_url="https://openrouter.ai/api/v1",
         api_key="sk-or-test",
-        api_key_env_var="OPENROUTER_API_KEY",
+        api_key_env_var="AGENTSNAP_JUDGE_API_KEY",
         save_key_to_env=True,
     )
     assert r.backend == "judge"
@@ -135,7 +135,7 @@ def test_apply_result_judge_writes_model_and_base_url(tmp_path):
         judge_model="openai/gpt-4o-mini",
         judge_base_url="https://openrouter.ai/api/v1",
         api_key="sk-or-test",
-        api_key_env_var="OPENROUTER_API_KEY",
+        api_key_env_var="AGENTSNAP_JUDGE_API_KEY",
         save_key_to_env=False,
     )
     apply_result(result, project_dir=tmp_path)
@@ -153,12 +153,12 @@ def test_apply_result_saves_key_to_env(tmp_path):
         judge_model="openai/gpt-4o-mini",
         judge_base_url="https://openrouter.ai/api/v1",
         api_key="sk-or-test",
-        api_key_env_var="OPENROUTER_API_KEY",
+        api_key_env_var="AGENTSNAP_JUDGE_API_KEY",
         save_key_to_env=True,
     )
     apply_result(result, project_dir=tmp_path)
     env_content = (tmp_path / ".env").read_text()
-    assert "OPENROUTER_API_KEY=sk-or-test" in env_content
+    assert "AGENTSNAP_JUDGE_API_KEY=sk-or-test" in env_content
 
 
 def test_apply_result_env_additive(tmp_path):
@@ -170,32 +170,32 @@ def test_apply_result_env_additive(tmp_path):
         judge_model="openai/gpt-4o-mini",
         judge_base_url="https://openrouter.ai/api/v1",
         api_key="sk-or-test",
-        api_key_env_var="OPENROUTER_API_KEY",
+        api_key_env_var="AGENTSNAP_JUDGE_API_KEY",
         save_key_to_env=True,
     )
     apply_result(result, project_dir=tmp_path)
     content = env_file.read_text()
     assert "EXISTING_KEY=existing_value" in content
-    assert "OPENROUTER_API_KEY=sk-or-test" in content
+    assert "AGENTSNAP_JUDGE_API_KEY=sk-or-test" in content
 
 
 def test_apply_result_env_updates_existing_key(tmp_path):
     """If key already in .env, update its value rather than appending a duplicate."""
     env_file = tmp_path / ".env"
-    env_file.write_text("OPENROUTER_API_KEY=old-key\n")
+    env_file.write_text("AGENTSNAP_JUDGE_API_KEY=old-key\n")
     result = WizardResult(
         backend="judge",
         judge_model="openai/gpt-4o-mini",
         judge_base_url="https://openrouter.ai/api/v1",
         api_key="new-key",
-        api_key_env_var="OPENROUTER_API_KEY",
+        api_key_env_var="AGENTSNAP_JUDGE_API_KEY",
         save_key_to_env=True,
     )
     apply_result(result, project_dir=tmp_path)
     content = env_file.read_text()
-    assert "OPENROUTER_API_KEY=new-key" in content
+    assert "AGENTSNAP_JUDGE_API_KEY=new-key" in content
     assert "old-key" not in content
-    assert content.count("OPENROUTER_API_KEY") == 1
+    assert content.count("AGENTSNAP_JUDGE_API_KEY") == 1
 
 
 def test_write_env_key_appends_when_no_trailing_newline(tmp_path):
@@ -258,3 +258,18 @@ def test_check_offline_model_returns_path_when_cached(monkeypatch, tmp_path):
     result = check_offline_model()
     assert result is not None
     assert "MiniLM" in result
+
+
+def test_embed_raises_when_model_not_cached(tmp_path, monkeypatch):
+    # Force the HF cache to a temp dir that has no model
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    # Reset the cached model instance
+    import agentsnap.core.diff as diff_mod
+    original = diff_mod._embedding_model
+    diff_mod._embedding_model = None
+    try:
+        import pytest
+        with pytest.raises(RuntimeError, match="agentsnap init"):
+            diff_mod._get_embedding_model()
+    finally:
+        diff_mod._embedding_model = original

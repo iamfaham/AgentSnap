@@ -112,6 +112,25 @@ def test_init_judge_connection_failure_shows_warning(tmp_path):
     assert "warning" in result.output.lower() or "failed" in result.output.lower()
 
 
+def test_init_judge_uses_existing_env_key(tmp_path):
+    """If AGENTSNAP_JUDGE_API_KEY is set, wizard skips key prompt and does not save to .env."""
+    runner = CliRunner()
+    with mock.patch("agentsnap.setup_wizard.test_judge_connection", return_value=0.3):
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(
+                cli,
+                ["init"],
+                # judge → openrouter → accept default model; no key prompt expected
+                input="1\n1\n\n",
+                env={"AGENTSNAP_JUDGE_API_KEY": "sk-existing-test"},
+                catch_exceptions=False,
+            )
+    assert result.exit_code == 0, result.output
+    assert "AGENTSNAP_JUDGE_API_KEY" in result.output
+    # Key must NOT be saved to .env when already in environment
+    assert not (tmp_path / ".env").exists() or "sk-existing-test" not in (tmp_path / ".env").read_text()
+
+
 # ── agentsnap check ───────────────────────────────────────────────────────────
 
 def test_check_offline_cached(tmp_path, monkeypatch):

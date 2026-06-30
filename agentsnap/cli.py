@@ -132,11 +132,15 @@ def init_cmd() -> None:
     if result.backend == "offline":
         if result.pre_download_model:
             click.echo("\nDownloading all-MiniLM-L6-v2...")
-            _download_model()
-            click.echo("  Model cached.")
+            try:
+                _download_model()
+                click.echo("  Model cached.")
+            except RuntimeError as exc:
+                click.echo(f"  {exc}")
         else:
             click.echo(
-                "\nModel will download automatically on first test run (~22 MB)."
+                "\nModel will download on first test run (~22 MB)."
+                "\nNote: requires pip install agentsnap[offline] if not already installed."
             )
         click.echo("\nOffline embeddings configured.")
     else:
@@ -155,12 +159,19 @@ def check_cmd() -> None:
     from agentsnap.setup_wizard import check_offline_model, test_judge_connection
 
     cfg = config.load(Path.cwd())
+    backend = cfg.get("backend")
     api_key = cfg.get("judge_api_key")
 
+    # Neither wizard nor env key -- nothing configured yet
+    if not backend and not api_key:
+        click.echo("agentsnap is not configured.")
+        click.echo("Run 'agentsnap init' to set up your comparison backend.")
+        raise SystemExit(1)
+
     if api_key:
+        judge_base_url = cfg.get("judge_base_url")
+        judge_model = cfg.get("judge_model")
         click.echo("Backend : LLM judge")
-        judge_base_url = cfg.get("judge_base_url", "https://openrouter.ai/api/v1")
-        judge_model = cfg.get("judge_model", "openai/gpt-4o-mini")
         click.echo(f"Provider: {judge_base_url}")
         click.echo(f"Model   : {judge_model}")
         click.echo("API key : found")
@@ -174,17 +185,30 @@ def check_cmd() -> None:
         except RuntimeError as exc:
             click.echo(f"Status  : error - {exc}", err=True)
             raise SystemExit(1)
-    else:
+
+    elif backend == "offline":
+        try:
+            import sentence_transformers  # noqa: F401
+        except ImportError:
+            click.echo("Backend : offline embeddings (configured)")
+            click.echo("Status  : error - sentence-transformers not installed")
+            click.echo("Run: pip install agentsnap[offline]")
+            raise SystemExit(1)
         cached = check_offline_model()
         click.echo("Backend : offline embeddings (all-MiniLM-L6-v2)")
         if cached:
             click.echo(f"Model   : cached at {cached}")
             click.echo("Status  : ok")
         else:
-            click.echo(
-                "Model   : not cached - will download (~22 MB) on first test run"
-            )
+            click.echo("Model   : not cached - will download (~22 MB) on first test run")
             click.echo("Status  : ok (will download on first run)")
+
+    else:
+        # backend == "judge" but no key resolved
+        click.echo("Backend : LLM judge (configured)")
+        click.echo("API key : not found")
+        click.echo("Set AGENTSNAP_JUDGE_API_KEY in your environment or .env file.")
+        raise SystemExit(1)
 
 
 @cli.command("list")

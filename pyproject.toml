@@ -1,6 +1,6 @@
 [project]
 name = "agentsnap"
-version = "0.1.1"
+version = "0.1.2"
 description = "Deterministic snapshot testing harness for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,29 +9,34 @@ authors = [
     { name = "Syed Mohammad Faham", email = "iamfaham5@gmail.com" },
 ]
 dependencies = [
-    "anthropic>=0.25",
     "openai>=1.0",
-    "sentence-transformers>=2.0",
     "click>=8.0",
     "pytest>=7.0",
-    "numpy>=1.24",
     "python-dotenv>=1.0",
     "tomlkit>=0.12",
     "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+offline = [
+    "sentence-transformers>=2.0",
+    "numpy>=1.24",
+]
+anthropic = ["anthropic>=0.25"]
 langgraph = ["langgraph"]
 google = ["google-genai>=1.0"]
 cohere = ["cohere>=5.0"]
 mistral = ["mistralai>=1.0"]
 groq = ["groq>=0.9"]
 all-providers = [
+    "anthropic>=0.25",
     "google-genai>=1.0",
     "cohere>=5.0",
     "mistralai>=1.0",
     "groq>=0.9",
     "langgraph",
+    "sentence-transformers>=2.0",
+    "numpy>=1.24",
 ]
 dev = [
     "pytest-cov",

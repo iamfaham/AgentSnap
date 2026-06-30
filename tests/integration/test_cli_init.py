@@ -133,6 +133,18 @@ def test_init_judge_uses_existing_env_key(tmp_path):
 
 # ── agentsnap check ───────────────────────────────────────────────────────────
 
+def test_check_exits_1_when_not_configured(tmp_path, monkeypatch):
+    """check exits 1 and tells user to run init when no backend is configured."""
+    monkeypatch.delenv("AGENTSNAP_JUDGE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(cli, ["check"])
+    assert result.exit_code == 1
+    assert "agentsnap init" in result.output
+
+
 def test_check_offline_cached(tmp_path, monkeypatch):
     """check exits 0 and reports model cached when offline model is present."""
     monkeypatch.setattr(
@@ -144,6 +156,8 @@ def test_check_offline_cached(tmp_path, monkeypatch):
 
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        # Simulate having run agentsnap init with offline backend
+        Path("pyproject.toml").write_text('[tool.agentsnap]\nbackend = "offline"\n')
         result = runner.invoke(cli, ["check"], catch_exceptions=False)
     assert result.exit_code == 0, result.output
     assert "offline" in result.output.lower() or "embedding" in result.output.lower()
@@ -160,6 +174,8 @@ def test_check_offline_not_cached(tmp_path, monkeypatch):
 
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        # Simulate having run agentsnap init with offline backend
+        Path("pyproject.toml").write_text('[tool.agentsnap]\nbackend = "offline"\n')
         result = runner.invoke(cli, ["check"], catch_exceptions=False)
     assert result.exit_code == 0
     assert (

@@ -147,7 +147,13 @@ def check_offline_model() -> str | None:
 
 def _download_model() -> None:
     """Pre-download all-MiniLM-L6-v2 into the Hugging Face cache."""
-    from sentence_transformers import SentenceTransformer
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        raise RuntimeError(
+            "sentence-transformers is not installed.\n"
+            "Run: pip install agentsnap[offline]"
+        )
     SentenceTransformer(_OFFLINE_MODEL_NAME)
 
 

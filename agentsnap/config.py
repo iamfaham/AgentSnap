@@ -103,10 +103,20 @@ def _resolve_api_key(base_url: str) -> str | None:
 
 
 def load(start: Path | None = None) -> dict[str, Any]:
-    """Return merged config: defaults < pyproject.toml < env vars."""
+    """Return merged config: defaults < pyproject.toml < .env < env vars."""
+    pyproject = _find_pyproject(start)
+
+    try:
+        from dotenv import load_dotenv
+        # Load .env from the same directory as pyproject.toml (project root).
+        # override=False so real env vars always win over .env values.
+        env_file = pyproject.parent / ".env" if pyproject else Path.cwd() / ".env"
+        load_dotenv(env_file, override=False)
+    except ImportError:
+        pass
+
     cfg = dict(DEFAULTS)
 
-    pyproject = _find_pyproject(start)
     if pyproject:
         cfg.update(_load_pyproject(pyproject))
 

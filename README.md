@@ -42,46 +42,54 @@ The wizard saves your choice to `pyproject.toml` and your API key (if any) to `.
 agentsnap check   # verify your setup at any time
 ```
 
-### 3 — Wrap your client and run
+### 3 — Record your agent (no code changes needed)
+
+`PatchSet` patches all installed LLM SDKs at the class level — any raw client created anywhere is captured automatically. No need to wrap your clients:
 
 ```python
-from agentsnap import AgentRecorder, AgentAsserter
-from agentsnap.adapters.anthropic import AnthropicAdapter
-from agentsnap.adapters.tool import ToolAdapter
+from agentsnap import PatchSet, AgentRecorder
 import anthropic
 
-client = AnthropicAdapter(anthropic.Anthropic())
-search_tool = ToolAdapter(search, name="search")
+# your existing agent — untouched
+def my_agent(question):
+    client = anthropic.Anthropic()   # raw client, no wrapper needed
+    return client.messages.create(...).content[0].text
 
-# First run: records the golden snapshot automatically
-with AgentRecorder("my_agent") as rec:
-    result = my_agent(client, search_tool, input="What is Python?")
-    rec.output = result
+# First run: records the golden snapshot
+with PatchSet():
+    with AgentRecorder("my_agent") as rec:
+        result = my_agent("What is Python?")
+        rec.output = result
 # Writes __agent_snapshots__/my_agent.json — commit this file
 ```
 
 ### 4 — Assert on future runs
 
 ```python
-with AgentAsserter("my_agent") as a:
-    result = my_agent(client, search_tool, input="What is Python?")
-    a.output = result
+from agentsnap import PatchSet, AgentAsserter
+
+with PatchSet():
+    with AgentAsserter("my_agent") as a:
+        result = my_agent("What is Python?")
+        a.output = result
 # Raises AgentRegressionError if behavior drifted
 ```
 
 ### 5 — Use the pytest fixture (simplest)
 
-`snapshot.run()` auto-records on first call and auto-asserts on every run after that — no need to switch between `AgentRecorder` and `AgentAsserter`:
+`snapshot.run()` auto-records on first call and auto-asserts on every run after — no switching needed. Add `agentsnap_instrument` to activate `PatchSet` automatically:
 
 ```python
-def test_my_agent(snapshot):
+def test_my_agent(snapshot, agentsnap_instrument):
     with snapshot.run("my_agent") as s:
-        result = my_agent(client, search_tool, input="What is Python?")
+        result = my_agent("What is Python?")   # raw client — captured automatically
         s.output = result
 ```
 
 ```bash
 pytest
+# or enable PatchSet for every test in a session:
+pytest --agentsnap-instrument
 ```
 
 ---
@@ -112,35 +120,22 @@ pip install agentsnap[all-providers]
 
 ---
 
-## Zero-instrumentation capture
+## Using adapters (alternative)
 
-If you don't want to wrap your clients, use `PatchSet` to patch all installed LLM SDKs at the class level. Any raw client created anywhere in the process is captured automatically:
-
-```python
-from agentsnap import PatchSet, AgentRecorder
-
-with PatchSet():
-    with AgentRecorder("my_agent") as rec:
-        client = anthropic.Anthropic()   # no AnthropicAdapter needed
-        result = my_agent(client, "What is Python?")
-        rec.output = result
-```
-
-Or via the pytest fixture:
+If you prefer explicit interception, wrap your SDK client with the matching adapter instead of using `PatchSet`. Useful when you want to be explicit about what is captured or when you control the agent code directly:
 
 ```python
-def test_my_agent(snapshot, agentsnap_instrument):
-    with snapshot.run("my_agent") as s:
-        client = anthropic.Anthropic()   # captured automatically
-        s.output = my_agent(client, "What is Python?")
+from agentsnap import AgentRecorder
+from agentsnap.adapters.anthropic import AnthropicAdapter
+
+client = AnthropicAdapter(anthropic.Anthropic())   # explicit wrapper
+
+with AgentRecorder("my_agent") as rec:
+    result = my_agent(client, "What is Python?")
+    rec.output = result
 ```
 
-```bash
-# Or enable globally for all tests in a session
-pytest --agentsnap-instrument
-```
-
-> **Note:** Do not combine `PatchSet` with adapter wrappers on the same client — both interceptors will fire and events will be recorded twice.
+> **Note:** Do not combine adapters with `PatchSet` on the same client — both interceptors will fire and events will be recorded twice.
 
 ---
 

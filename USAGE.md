@@ -11,8 +11,8 @@ This guide walks through everything you need to use agentsnap effectively — fr
 3. [Setup](#setup)
 4. [Your first snapshot](#your-first-snapshot)
 5. [Choosing an instrumentation style](#choosing-an-instrumentation-style)
-6. [Using adapters](#using-adapters)
-7. [Zero-instrumentation with PatchSet](#zero-instrumentation-with-patchset)
+6. [Zero-instrumentation with PatchSet](#zero-instrumentation-with-patchset)
+7. [Using adapters (alternative)](#using-adapters-alternative)
 8. [pytest integration](#pytest-integration)
 9. [LangGraph](#langgraph)
 10. [Reviewing and approving changes](#reviewing-and-approving-changes)
@@ -149,17 +149,63 @@ From now on `pytest` asserts the snapshot on every run. If behavior drifts, the 
 
 agentsnap offers two ways to intercept LLM calls:
 
-**Adapters** — Wrap your SDK client explicitly. agentsnap intercepts calls through the wrapper. Clean, explicit, and zero risk of double-counting.
+**PatchSet (recommended)** — Patch SDK classes at the Python level. Any client created anywhere in the process is captured automatically. No code changes to existing agent code.
 
-**PatchSet** — Patch SDK classes at the Python level. Any client created anywhere in the process is captured automatically. No code changes to existing agent code.
+**Adapters** — Wrap your SDK client explicitly. agentsnap intercepts calls through the wrapper. Use when you want explicit control over exactly what is captured.
 
-Use adapters when you control the agent code and prefer explicitness. Use `PatchSet` when you are testing existing code you cannot or do not want to modify.
+Use `PatchSet` by default. Switch to adapters only when you need to be explicit about which clients are captured or when you are working with a provider that does not yet have a `PatchSet` patch.
 
 ---
 
-## Using adapters
+## Zero-instrumentation with PatchSet
 
-Each supported provider has an adapter that wraps the SDK client. Use it everywhere you would use the raw client:
+`PatchSet` patches the SDK classes directly so you do not need to change any agent code:
+
+```python
+from agentsnap import PatchSet, AgentRecorder
+
+with PatchSet():
+    with AgentRecorder("my_agent") as rec:
+        client = anthropic.Anthropic()    # raw client — no adapter
+        result = my_agent(client, "What is Python?")
+        rec.output = result
+```
+
+`PatchSet` covers all installed SDKs simultaneously. SDKs that are not installed are silently skipped.
+
+**In pytest — per test:**
+
+```python
+def test_my_agent(snapshot, agentsnap_instrument):
+    with snapshot.run("my_agent") as s:
+        client = anthropic.Anthropic()
+        s.output = my_agent(client, "query")
+```
+
+**In pytest — all tests in a session:**
+
+```bash
+pytest --agentsnap-instrument
+```
+
+**Project-wide (autouse in conftest.py):**
+
+```python
+# conftest.py
+import pytest
+
+@pytest.fixture(autouse=True)
+def _(agentsnap_instrument):
+    pass
+```
+
+> **Warning:** Do not use `PatchSet` together with an adapter wrapper on the same client. Both interceptors will fire and events will be recorded twice, producing a corrupted trace. Use one or the other.
+
+---
+
+## Using adapters (alternative)
+
+Each supported provider has an adapter that wraps the SDK client explicitly. Use it everywhere you would use the raw client:
 
 ```python
 import anthropic
@@ -214,52 +260,6 @@ with AgentAsserter("my_agent") as a:
 ```
 
 If the trace matches the golden snapshot, the context manager exits cleanly. If anything drifted, it raises `AgentRegressionError`.
-
----
-
-## Zero-instrumentation with PatchSet
-
-`PatchSet` patches the SDK classes directly so you do not need to change any agent code:
-
-```python
-from agentsnap import PatchSet, AgentRecorder
-
-with PatchSet():
-    with AgentRecorder("my_agent") as rec:
-        client = anthropic.Anthropic()    # raw client — no adapter
-        result = my_agent(client, "What is Python?")
-        rec.output = result
-```
-
-`PatchSet` covers all installed SDKs simultaneously. SDKs that are not installed are silently skipped.
-
-**In pytest — per test:**
-
-```python
-def test_my_agent(snapshot, agentsnap_instrument):
-    with snapshot.run("my_agent") as s:
-        client = anthropic.Anthropic()
-        s.output = my_agent(client, "query")
-```
-
-**In pytest — all tests in a session:**
-
-```bash
-pytest --agentsnap-instrument
-```
-
-**Project-wide (autouse in conftest.py):**
-
-```python
-# conftest.py
-import pytest
-
-@pytest.fixture(autouse=True)
-def _(agentsnap_instrument):
-    pass
-```
-
-> **Warning:** Do not use `PatchSet` together with an adapter wrapper on the same client. Both interceptors will fire and events will be recorded twice, producing a corrupted trace. Use one or the other.
 
 ---
 

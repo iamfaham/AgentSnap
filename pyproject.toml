@@ -53,7 +53,10 @@ testpaths = ["tests"]
 addopts = "-v"
 
 [tool.agentsnap]
-# LLM judge settings (API key must be set via AGENTSNAP_JUDGE_API_KEY env var)
+# Semantic backend: "offline" (all-MiniLM-L6-v2) or "judge" (LLM via API)
+# Run `agentsnap init` to reconfigure. API key goes in AGENTSNAP_JUDGE_API_KEY env var.
+backend          = "offline"
+# LLM judge settings (used when backend = "judge")
 judge_model      = "openai/gpt-4o-mini"
 judge_base_url   = "https://openrouter.ai/api/v1"
 # Thresholds

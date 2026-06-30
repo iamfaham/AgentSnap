@@ -10,7 +10,7 @@ from typing import Any
 
 PROVIDERS: dict[str, dict[str, Any]] = {
     "openrouter": {
-        "label":         "OpenRouter (recommended — many models, one key)",
+        "label":         "OpenRouter (recommended - many models, one key)",
         "base_url":      "https://openrouter.ai/api/v1",
         "default_model": "openai/gpt-4o-mini",
         "env_var":       "AGENTSNAP_JUDGE_API_KEY",
@@ -54,6 +54,8 @@ def apply_result(result: WizardResult, project_dir: Path) -> None:
 
     pyproject = project_dir / "pyproject.toml"
     updates: dict[str, Any] = {}
+
+    updates["backend"] = result.backend  # marks wizard as having been run
 
     if result.backend == "judge":
         if result.judge_model:
@@ -157,17 +159,17 @@ def run_wizard() -> WizardResult:
     All I/O goes through click so tests can inject input via CliRunner.
 
     Menu:
-      [1] LLM judge (API)       — recommended, default
-      [2] Offline embeddings    — all-MiniLM-L6-v2, explicit opt-in
-      [3] Local LLM judge       — coming soon, displayed but NOT selectable
+      [1] LLM judge (API)       - recommended, default
+      [2] Offline embeddings    - all-MiniLM-L6-v2, explicit opt-in
+      [3] Local LLM judge       - coming soon, displayed but NOT selectable
     """
     import click
 
     click.echo("\nWelcome to agentsnap setup!\n")
     click.echo("How do you want to compare LLM responses between runs?\n")
-    click.echo("  [1] LLM judge (API)     — most accurate, API key required  [recommended]")
-    click.echo("  [2] Offline embeddings  — all-MiniLM-L6-v2, no API key, runs anywhere")
-    click.echo("  [3] Local LLM judge     — run the judge on your own machine  [coming soon]\n")
+    click.echo("  [1] LLM judge (API)     - most accurate, API key required  [recommended]")
+    click.echo("  [2] Offline embeddings  - all-MiniLM-L6-v2, no API key, runs anywhere")
+    click.echo("  [3] Local LLM judge     - run the judge on your own machine  [coming soon]\n")
 
     backend_choice = click.prompt(
         "Your choice",
@@ -176,7 +178,7 @@ def run_wizard() -> WizardResult:
     )
 
     if backend_choice == "2":
-        # Offline embeddings — explicit opt-in
+        # Offline embeddings - explicit opt-in
         pre_download = click.confirm(
             "\nPre-download the embedding model now so tests don't pause on first run?",
             default=True,
@@ -206,8 +208,6 @@ def run_wizard() -> WizardResult:
         base_url      = click.prompt("Base URL (e.g. https://api.openai.com/v1)")
         default_model = click.prompt("Model name")
 
-    model = click.prompt("Model", default=default_model)
-
     existing_key = os.environ.get("AGENTSNAP_JUDGE_API_KEY")
     if existing_key:
         click.echo("  Using existing AGENTSNAP_JUDGE_API_KEY from environment.")
@@ -216,9 +216,21 @@ def run_wizard() -> WizardResult:
     else:
         api_key  = click.prompt("API key", hide_input=True)
         save_key = click.confirm(
-            f"\nSave to .env as {env_var}? (recommended — keeps key out of code)",
+            f"\nSave to .env as {env_var}? (recommended - keeps key out of code)",
             default=True,
         )
+
+    while True:
+        model = click.prompt("Model", default=default_model)
+        click.echo("  Testing connection...")
+        try:
+            latency = test_judge_connection(base_url, model, api_key)
+            click.echo(f"  OK ({latency:.1f}s)")
+            break
+        except RuntimeError as exc:
+            click.echo(f"  Failed: {exc}")
+            if not click.confirm("  Try a different model?", default=True):
+                break
 
     return WizardResult(
         backend="judge",

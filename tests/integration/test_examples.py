@@ -21,7 +21,7 @@ def test_demo_mock_exits_zero(tmp_path):
         f"STDOUT:\n{result.stdout}\n"
         f"STDERR:\n{result.stderr}"
     )
-    assert "All providers complete" in result.stdout
+    assert "All demos complete" in result.stdout
     assert "langgraph" in result.stdout.lower()
 
 

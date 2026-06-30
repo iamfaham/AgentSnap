@@ -104,4 +104,10 @@ class AgentAsserter:
                 f"Agent regression detected in '{self.test_name}'",
                 report,
             )
+
+        scores = report.semantic_scores or {}
+        parts = ["structural: ok"] if not report.structural_diff else [f"structural: mismatch"]
+        for step, score in scores.items():
+            parts.append(f"{step}: {int(score * 100)}%")
+        print(f"  [agentsnap] '{self.test_name}' PASSED | {' | '.join(parts)}")
         return False

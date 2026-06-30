@@ -47,7 +47,14 @@ def _get_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
             )
 
         from sentence_transformers import SentenceTransformer
-        _embedding_model = SentenceTransformer(model_name)
+        import transformers.utils.logging as _hf_log
+        _was_enabled = _hf_log.is_progress_bar_enabled()
+        _hf_log.disable_progress_bar()
+        try:
+            _embedding_model = SentenceTransformer(model_name)
+        finally:
+            if _was_enabled:
+                _hf_log.enable_progress_bar()
     return _embedding_model
 
 

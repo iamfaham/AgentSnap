@@ -14,7 +14,7 @@ DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
 
 @click.group()
 def cli() -> None:
-    """agentsnap — deterministic snapshot testing for AI agents."""
+    """agentsnap - deterministic snapshot testing for AI agents."""
 
 
 @cli.command("record")
@@ -104,7 +104,7 @@ def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
         new = json.loads(src.read_text(encoding="utf-8"))
         _print_update_diff(old, new)
     else:
-        click.echo("No existing snapshot — will create a new golden.")
+        click.echo("No existing snapshot - will create a new golden.")
 
     if not yes:
         if not click.confirm("\nApprove and update snapshot?"):
@@ -117,7 +117,7 @@ def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
 
 @cli.command("init")
 def init_cmd() -> None:
-    """Interactive setup wizard — choose LLM judge or offline embeddings."""
+    """Interactive setup wizard - choose LLM judge or offline embeddings."""
     from agentsnap.setup_wizard import (
         _download_model,
         apply_result,
@@ -151,7 +151,7 @@ def init_cmd() -> None:
         except RuntimeError as exc:
             click.echo(f"  Warning: {exc}", err=True)
             click.echo(
-                "  Setup saved anyway — fix the key and re-run `agentsnap check`."
+                "  Setup saved anyway - fix the key and re-run `agentsnap check`."
             )
 
         if result.save_key_to_env:
@@ -186,7 +186,7 @@ def check_cmd() -> None:
             )
             click.echo(f"Status  : ok ({latency:.2f}s)")
         except RuntimeError as exc:
-            click.echo(f"Status  : error — {exc}", err=True)
+            click.echo(f"Status  : error - {exc}", err=True)
             raise SystemExit(1)
     else:
         cached = check_offline_model()
@@ -196,7 +196,7 @@ def check_cmd() -> None:
             click.echo("Status  : ok")
         else:
             click.echo(
-                "Model   : not cached — will download (~22 MB) on first test run"
+                "Model   : not cached - will download (~22 MB) on first test run"
             )
             click.echo("Status  : ok (will download on first run)")
 

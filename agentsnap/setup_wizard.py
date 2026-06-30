@@ -208,8 +208,6 @@ def run_wizard() -> WizardResult:
         base_url      = click.prompt("Base URL (e.g. https://api.openai.com/v1)")
         default_model = click.prompt("Model name")
 
-    model = click.prompt("Model", default=default_model)
-
     existing_key = os.environ.get("AGENTSNAP_JUDGE_API_KEY")
     if existing_key:
         click.echo("  Using existing AGENTSNAP_JUDGE_API_KEY from environment.")
@@ -221,6 +219,18 @@ def run_wizard() -> WizardResult:
             f"\nSave to .env as {env_var}? (recommended - keeps key out of code)",
             default=True,
         )
+
+    while True:
+        model = click.prompt("Model", default=default_model)
+        click.echo("  Testing connection...")
+        try:
+            latency = test_judge_connection(base_url, model, api_key)
+            click.echo(f"  OK ({latency:.1f}s)")
+            break
+        except RuntimeError as exc:
+            click.echo(f"  Failed: {exc}")
+            if not click.confirm("  Try a different model?", default=True):
+                break
 
     return WizardResult(
         backend="judge",

@@ -140,22 +140,8 @@ def init_cmd() -> None:
             )
         click.echo("\nOffline embeddings configured.")
     else:
-        click.echo("\nTesting connection...")
-        try:
-            latency = test_judge_connection(
-                base_url=result.judge_base_url,
-                model=result.judge_model,
-                api_key=result.api_key,
-            )
-            click.echo(f"  Connection ok ({latency:.1f}s)")
-        except RuntimeError as exc:
-            click.echo(f"  Warning: {exc}", err=True)
-            click.echo(
-                "  Setup saved anyway - fix the key and re-run `agentsnap check`."
-            )
-
         if result.save_key_to_env:
-            click.echo(f"  API key written to .env ({result.api_key_env_var})")
+            click.echo(f"\n  API key written to .env ({result.api_key_env_var})")
         click.echo("\nLLM judge configured.")
 
     click.echo("Configuration written to pyproject.toml.")

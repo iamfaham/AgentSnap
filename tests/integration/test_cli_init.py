@@ -70,12 +70,12 @@ def test_init_judge_openrouter(tmp_path):
             result = runner.invoke(
                 cli,
                 ["init"],
-                # [1] judge, [1] openrouter, accept default model, api key, [y] save to .env
-                input="1\n1\n\nsk-or-test\ny\n",
+                # [1] judge, [1] openrouter, api key, [y] save to .env, accept default model
+                input="1\n1\nsk-or-test\ny\n\n",
                 catch_exceptions=False,
             )
     assert result.exit_code == 0, result.output
-    assert "judge" in result.output.lower() or "connection" in result.output.lower()
+    assert "judge" in result.output.lower() or "ok" in result.output.lower()
 
 
 def test_init_judge_saves_key_to_env_not_pyproject(tmp_path):
@@ -86,7 +86,7 @@ def test_init_judge_saves_key_to_env_not_pyproject(tmp_path):
             runner.invoke(
                 cli,
                 ["init"],
-                input="1\n1\n\nsk-or-testkey\ny\n",
+                input="1\n1\nsk-or-testkey\ny\n\n",
                 catch_exceptions=False,
             )
             assert Path(".env").exists()
@@ -95,7 +95,7 @@ def test_init_judge_saves_key_to_env_not_pyproject(tmp_path):
 
 
 def test_init_judge_connection_failure_shows_warning(tmp_path):
-    """If connectivity test fails, init still completes and shows a warning."""
+    """If connectivity test fails and user declines retry, init still completes."""
     runner = CliRunner()
     with mock.patch(
         "agentsnap.setup_wizard.test_judge_connection",
@@ -105,11 +105,12 @@ def test_init_judge_connection_failure_shows_warning(tmp_path):
             result = runner.invoke(
                 cli,
                 ["init"],
-                input="1\n1\n\nsk-bad\ny\n",
+                # judge, openrouter, key, save, model(default), decline retry
+                input="1\n1\nsk-bad\ny\n\nn\n",
                 catch_exceptions=False,
             )
     assert result.exit_code == 0, result.output
-    assert "warning" in result.output.lower() or "failed" in result.output.lower()
+    assert "failed" in result.output.lower()
 
 
 def test_init_judge_uses_existing_env_key(tmp_path):
@@ -120,14 +121,13 @@ def test_init_judge_uses_existing_env_key(tmp_path):
             result = runner.invoke(
                 cli,
                 ["init"],
-                # judge → openrouter → accept default model; no key prompt expected
+                # judge -> openrouter -> no key prompt -> accept default model
                 input="1\n1\n\n",
                 env={"AGENTSNAP_JUDGE_API_KEY": "sk-existing-test"},
                 catch_exceptions=False,
             )
     assert result.exit_code == 0, result.output
     assert "AGENTSNAP_JUDGE_API_KEY" in result.output
-    # Key must NOT be saved to .env when already in environment
     assert not (tmp_path / ".env").exists() or "sk-existing-test" not in (tmp_path / ".env").read_text()
 
 

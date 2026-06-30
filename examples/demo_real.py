@@ -319,8 +319,8 @@ def scenario_2_model_upgrade(key: str) -> None:
                 a.output = call_agent(client, tool, "agentsnap", MODEL_B)
             print("  PASSED -- MODEL_B is now the baseline.")
         except AgentRegressionError as e2:
-            r2 = e2.diff_report
-            print(f"  Still drifting (LLM responses are non-deterministic): {r2.semantic_scores}")
+            print("  Still drifting (LLM responses are non-deterministic):")
+            print(str(e2))
 
     # Cleanup
     for p in [snapshot_path(snap_name, SNAPSHOT_DIR),

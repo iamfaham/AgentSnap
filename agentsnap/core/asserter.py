@@ -54,7 +54,7 @@ class AgentAsserter:
         except SnapshotNotFoundError:
             self._snapshot = {}
             self._record_mode = True
-            print(f"\n  [agentsnap] no snapshot for '{self.test_name}' — recording golden run")
+            print(f"\n  [agentsnap] no snapshot for '{self.test_name}' - recording golden run")
         self._accumulator = TraceAccumulator(
             model=self._snapshot.get("model", "unknown")
         )

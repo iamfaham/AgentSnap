@@ -398,21 +398,34 @@ llm_threshold      = 0.75                           # intermediate LLM similarit
 
 ## Understanding diff results
 
-When `AgentRegressionError` is raised, check `e.diff_report`:
+When `AgentRegressionError` is raised, `str(e)` (or just letting pytest print it) gives a formatted report with percentage scores:
+
+```
+Agent regression detected in 'my_agent'
+
+-- Diff Report ------------------------------------------
+  [STRUCTURAL] 50% tool match  (Tool sequence changed: ['lookup'] -> ['lookup', 'summarize'])
+  [SEMANTIC] llm_call[0]: 91% (PASS)
+  [SEMANTIC] output: 71% (FAIL)  "responses differ in topic"
+  Failed checks: ['structural', 'semantic:output']
+---------------------------------------------------------
+```
+
+For programmatic access, inspect `e.diff_report` directly:
 
 ```python
 try:
     with AgentAsserter("my_agent") as a:
         a.output = my_agent(...)
 except AgentRegressionError as e:
-    print(e.diff_report.failed_checks)      # list of what failed
-    print(e.diff_report.structural_diff)    # tool sequence diff
+    print(e.diff_report.failed_checks)      # ['structural', 'semantic:output']
+    print(e.diff_report.structural_diff)    # tool sequence diff string
     print(e.diff_report.argument_diffs)     # per-tool argument diffs
-    print(e.diff_report.semantic_scores)    # similarity scores by step
+    print(e.diff_report.semantic_scores)    # {'output': 0.71, 'llm_call[0]': 0.91}
     print(e.diff_report.semantic_reasons)   # LLM judge explanations (if enabled)
 ```
 
-`failed_checks` is a list of strings like `['structural']`, `['semantic:output']`, or `['semantic:llm_call[0]']`. Each entry tells you exactly which layer and which step failed.
+`failed_checks` contains strings like `'structural'`, `'semantic:output'`, or `'semantic:llm_call[0]'` — one entry per layer and step that failed.
 
 ---
 
@@ -452,7 +465,7 @@ llm_threshold      = 0.80
 
 ## LLM judge
 
-Without any setup, agentsnap falls back to cosine similarity on embeddings (`all-MiniLM-L6-v2`, runs offline). The setup wizard defaults to the LLM judge because it gives more accurate results for factual agents — embeddings are the fallback when no API key is configured.
+agentsnap requires a configured backend before it can compare responses. Run `agentsnap init` once per project to choose between LLM judge and offline embeddings. The wizard defaults to the LLM judge because it gives more accurate results for factual agents — choose offline embeddings if you have no API key or need air-gapped operation.
 
 The easiest way to configure the LLM judge is via the setup wizard:
 
@@ -510,4 +523,4 @@ jobs:
           AGENTSNAP_JUDGE_API_KEY: ${{ secrets.AGENTSNAP_JUDGE_API_KEY }}
 ```
 
-If `AGENTSNAP_JUDGE_API_KEY` is not set, agentsnap falls back to offline embedding comparison — CI works without any secrets.
+If `AGENTSNAP_JUDGE_API_KEY` is not set, agentsnap uses offline embedding comparison — provided you ran `agentsnap init` with option [2] (offline embeddings) and committed the resulting `pyproject.toml`. CI works without any secrets once that setup is done.

@@ -260,10 +260,29 @@ def test_check_offline_model_returns_path_when_cached(monkeypatch, tmp_path):
     assert "MiniLM" in result
 
 
-def test_embed_raises_when_model_not_cached(tmp_path, monkeypatch):
-    # Force the HF cache to a temp dir that has no model
+def test_embed_raises_when_no_setup_run(tmp_path, monkeypatch):
+    # No pyproject.toml with backend key, no API key in env
     monkeypatch.setenv("HF_HOME", str(tmp_path))
-    # Reset the cached model instance
+    monkeypatch.delenv("AGENTSNAP_JUDGE_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)  # no pyproject.toml here
+    import agentsnap.core.diff as diff_mod
+    original = diff_mod._embedding_model
+    diff_mod._embedding_model = None
+    try:
+        import pytest
+        with pytest.raises(RuntimeError, match="agentsnap init"):
+            diff_mod._get_embedding_model()
+    finally:
+        diff_mod._embedding_model = original
+
+
+def test_embed_raises_when_model_not_cached(tmp_path, monkeypatch):
+    # backend configured in pyproject but model not yet downloaded
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[tool.agentsnap]\nbackend = "offline"\n', encoding="utf-8")
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    monkeypatch.delenv("AGENTSNAP_JUDGE_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
     import agentsnap.core.diff as diff_mod
     original = diff_mod._embedding_model
     diff_mod._embedding_model = None

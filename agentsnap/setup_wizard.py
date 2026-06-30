@@ -55,6 +55,8 @@ def apply_result(result: WizardResult, project_dir: Path) -> None:
     pyproject = project_dir / "pyproject.toml"
     updates: dict[str, Any] = {}
 
+    updates["backend"] = result.backend  # marks wizard as having been run
+
     if result.backend == "judge":
         if result.judge_model:
             updates["judge_model"] = result.judge_model

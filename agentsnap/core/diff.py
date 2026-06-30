@@ -17,14 +17,35 @@ def _get_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
     if _embedding_model is None:
         import os
         from pathlib import Path
+
+        # Require explicit setup: either wizard wrote backend="offline" to
+        # pyproject.toml, or a judge API key is available in the environment.
+        api_key = os.environ.get("AGENTSNAP_JUDGE_API_KEY")
+        if not api_key:
+            try:
+                from agentsnap.config import load
+                cfg = load()
+                backend_configured = bool(cfg.get("backend") or cfg.get("judge_api_key"))
+            except Exception:
+                backend_configured = False
+        else:
+            backend_configured = True
+
+        if not backend_configured:
+            raise RuntimeError(
+                "No semantic backend configured.\n"
+                "Run 'agentsnap init' to set up your comparison backend."
+            )
+
         cache_str = os.getenv("HF_HOME") or os.getenv("HUGGINGFACE_HUB_CACHE")
         cache_root = Path(cache_str) if cache_str else Path.home() / ".cache" / "huggingface" / "hub"
         model_dir = cache_root / "models--sentence-transformers--all-MiniLM-L6-v2"
         if not model_dir.exists():
             raise RuntimeError(
-                "No semantic backend configured.\n"
-                "Run 'agentsnap init' to set up your comparison backend."
+                "Offline embedding model not downloaded.\n"
+                "Run 'agentsnap init' and choose option [2] to download it."
             )
+
         from sentence_transformers import SentenceTransformer
         _embedding_model = SentenceTransformer(model_name)
     return _embedding_model

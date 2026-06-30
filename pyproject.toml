@@ -1,6 +1,6 @@
 [project]
 name = "agentsnap"
-version = "0.1.0"
+version = "0.1.1"
 description = "Deterministic snapshot testing harness for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -55,7 +55,7 @@ addopts = "-v"
 [tool.agentsnap]
 # Semantic backend: "offline" (all-MiniLM-L6-v2) or "judge" (LLM via API)
 # Run `agentsnap init` to reconfigure. API key goes in AGENTSNAP_JUDGE_API_KEY env var.
-backend          = "offline"
+backend          = "judge"
 # LLM judge settings (used when backend = "judge")
 judge_model      = "openai/gpt-4o-mini"
 judge_base_url   = "https://openrouter.ai/api/v1"

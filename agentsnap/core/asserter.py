@@ -111,3 +111,9 @@ class AgentAsserter:
             parts.append(f"{step}: {int(score * 100)}%")
         print(f"  [agentsnap] '{self.test_name}' PASSED | {' | '.join(parts)}")
         return False
+
+    async def __aenter__(self) -> "AgentAsserter":
+        return self.__enter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        return self.__exit__(exc_type, exc_val, exc_tb)

@@ -73,6 +73,12 @@ class AgentRecorder:
             )
         return False
 
+    async def __aenter__(self) -> "AgentRecorder":
+        return self.__enter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        return self.__exit__(exc_type, exc_val, exc_tb)
+
     @property
     def accumulator(self) -> TraceAccumulator:
         assert self._accumulator is not None

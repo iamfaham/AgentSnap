@@ -203,3 +203,81 @@ def test_tool_end_without_prior_start_still_records_event(tmp_path):
     tool_events = [e for e in data["trace"] if e["type"] == "tool_call"]
     assert len(tool_events) == 1
     assert tool_events[0]["args"] == {}
+
+
+import asyncio
+
+
+class _MockAsyncGraph:
+    """Async graph that fires callbacks synchronously (mirrors real LangGraph behavior)."""
+
+    def __init__(self, llm_text: str = "async response", tool_name: str = "async_tool"):
+        self._llm_text = llm_text
+        self._tool_name = tool_name
+
+    async def ainvoke(self, input_data, config=None, **kwargs):
+        import uuid as _uuid
+        run_id = str(_uuid.uuid4())
+        for cb in (config or {}).get("callbacks", []):
+            if hasattr(cb, "on_tool_start"):
+                cb.on_tool_start(
+                    {"name": self._tool_name},
+                    '{"q": "test"}',
+                    run_id=run_id,
+                )
+            if hasattr(cb, "on_llm_end"):
+                cb.on_llm_end(_LLMResult(self._llm_text))
+            if hasattr(cb, "on_tool_end"):
+                cb.on_tool_end("async result", name=self._tool_name, run_id=run_id)
+        return f"Final: {self._llm_text}"
+
+    def stream(self, *a, **kw):
+        return iter([])
+
+    async def astream(self, *a, **kw):
+        return
+        yield  # make it an async generator
+
+
+def test_langgraph_adapter_ainvoke_captures_trace(tmp_path):
+    """ainvoke must capture LLM + tool events just like sync invoke."""
+    async def _run():
+        graph = LangGraphAdapter(_MockAsyncGraph())
+        snap_dir = str(tmp_path / "snaps_async")
+        with AgentRecorder("lg_async", snapshot_dir=snap_dir) as rec:
+            rec.output = await graph.ainvoke("What is agentsnap?")
+
+    asyncio.run(_run())
+
+    import json
+    data = json.loads((tmp_path / "snaps_async" / "lg_async.json").read_text())
+    trace = data["trace"]
+    assert any(e["type"] == "llm_call" for e in trace)
+    assert any(e["type"] == "tool_call" for e in trace)
+    tool_events = [e for e in trace if e["type"] == "tool_call"]
+    assert tool_events[0]["args"] == {"q": "test"}
+
+
+def test_langgraph_adapter_ainvoke_passthrough_without_accumulator():
+    """ainvoke must be transparent when no recorder is active."""
+    async def _run():
+        graph = LangGraphAdapter(_MockAsyncGraph(llm_text="direct"))
+        assert TraceAccumulator.current() is None
+        result = await graph.ainvoke("input")
+        assert result == "Final: direct"
+
+    asyncio.run(_run())
+
+
+def test_async_context_manager_with_recorder(tmp_path):
+    """async with AgentRecorder must work in async test code."""
+    async def _run():
+        graph = LangGraphAdapter(_MockAsyncGraph())
+        snap_dir = str(tmp_path / "snaps_actx")
+        async with AgentRecorder("lg_async_ctx", snapshot_dir=snap_dir) as rec:
+            rec.output = await graph.ainvoke("question")
+
+    asyncio.run(_run())
+    import json
+    snap = json.loads((tmp_path / "snaps_actx" / "lg_async_ctx.json").read_text())
+    assert snap["output"].startswith("Final:")

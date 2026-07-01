@@ -119,6 +119,36 @@ class LangGraphAdapter:
             })
         return result
 
+    async def ainvoke(self, input_data, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return await self._graph.ainvoke(input_data, **kwargs)
+
+        # Pin the accumulator explicitly rather than relying on ContextVar lookup
+        # at callback time. Async callback managers may dispatch sync callbacks via
+        # run_in_executor, which does not propagate ContextVar to the new thread.
+        config = dict(kwargs.pop("config", None) or {})
+        callbacks = list(config.get("callbacks") or [])
+        callbacks.append(AgentSnapCallback(accumulator=acc))
+        config["callbacks"] = callbacks
+
+        if _Base is not object:
+            return await self._graph.ainvoke(input_data, config=config, **kwargs)
+
+        result = await self._graph.ainvoke(input_data, config=config, **kwargs)
+        if not any(e["type"] == "llm_call" for e in acc.trace):
+            acc.push({
+                "type": "llm_call",
+                "messages": [{"role": "user", "content": str(input_data)}],
+                "response": str(result),
+                "tokens": 0,
+            })
+        return result
+
+    async def astream(self, input_data, **kwargs):
+        async for chunk in self._graph.astream(input_data, **kwargs):
+            yield chunk
+
     def stream(self, input_data, **kwargs):
         return self._graph.stream(input_data, **kwargs)
 

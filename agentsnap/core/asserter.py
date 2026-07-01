@@ -101,8 +101,11 @@ class AgentAsserter:
         )
         if not report.passed:
             raise AgentRegressionError(
-                f"Agent regression detected in '{self.test_name}'",
+                self.test_name,
                 report,
+                self._snapshot,
+                new_trace,
+                self.output,
             )
 
         scores = report.semantic_scores or {}

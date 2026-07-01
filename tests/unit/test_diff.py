@@ -239,3 +239,73 @@ def test_diff_report_dataclass():
     assert r.argument_diffs == {}
     assert r.semantic_scores == {}
     assert r.failed_checks == []
+
+
+# ── AgentRegressionError formatting ──────────────────────────────────────────
+
+from agentsnap.exceptions import AgentRegressionError
+
+
+def _make_error(
+    test_name="my_test",
+    struct=None,
+    arg_diffs=None,
+    scores=None,
+    reasons=None,
+    failed=None,
+    old_output="old answer",
+    new_output="new answer",
+    old_trace=None,
+    new_trace=None,
+):
+    report = DiffReport(
+        passed=False,
+        structural_diff=struct,
+        argument_diffs=arg_diffs or {},
+        semantic_scores=scores or {"output": 0.71},
+        semantic_reasons=reasons or {},
+        failed_checks=failed or ["semantic:output"],
+    )
+    old_snapshot = {"trace": old_trace or [], "output": old_output}
+    return AgentRegressionError(test_name, report, old_snapshot, new_trace or [], new_output)
+
+
+def test_error_str_contains_test_name():
+    err = _make_error(test_name="billing_test")
+    assert "billing_test" in str(err)
+
+
+def test_error_str_shows_old_and_new_output_on_semantic_failure():
+    err = _make_error(old_output="the old answer", new_output="the new answer")
+    s = str(err)
+    assert "the old answer" in s
+    assert "the new answer" in s
+
+
+def test_error_str_does_not_show_text_when_output_passes():
+    report = DiffReport(
+        passed=False,
+        structural_diff="Tool sequence changed (edit distance 1): ['a'] -> ['b']",
+        argument_diffs={},
+        semantic_scores={"output": 0.98},
+        semantic_reasons={},
+        failed_checks=["structural"],
+    )
+    err = AgentRegressionError(
+        "t", report, {"trace": [], "output": "old"}, [], "old"
+    )
+    s = str(err)
+    # output text should not appear — it passed
+    assert "old\n  now:" not in s
+
+
+def test_error_str_shows_arg_changes():
+    err = _make_error(
+        arg_diffs={"search[0]": {"changed": {"query": ("old q", "new q")}}},
+        failed=["arguments"],
+        scores={"output": 1.0},
+    )
+    s = str(err)
+    assert "search[0]" in s
+    assert "old q" in s
+    assert "new q" in s

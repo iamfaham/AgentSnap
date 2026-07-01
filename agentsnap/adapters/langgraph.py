@@ -17,10 +17,23 @@ class AgentSnapCallback(_Base):
     When langchain_core is not installed, _Base is object — the class is still
     importable and its methods callable; it just won't be registered as a real
     LangChain callback (duck-typing makes it work with our mock graphs in tests).
+
+    The optional `accumulator` parameter pins a specific TraceAccumulator instead
+    of looking it up via ContextVar at callback time. This is required for async
+    usage where callbacks may fire in a thread pool (see LangGraphAdapter.ainvoke).
     """
 
+    def __init__(self, accumulator=None) -> None:
+        super().__init__()
+        self._accumulator = accumulator
+        # Keyed by str(run_id); holds {"name": ..., "args": ...} until on_tool_end fires.
+        self._pending_tools: dict = {}
+
+    def _acc(self):
+        return self._accumulator if self._accumulator is not None else TraceAccumulator.current()
+
     def on_llm_end(self, response, **kwargs) -> None:
-        acc = TraceAccumulator.current()
+        acc = self._acc()
         if acc is None:
             return
         text = ""
@@ -34,11 +47,30 @@ class AgentSnapCallback(_Base):
                 text = str(gen)
         acc.push({"type": "llm_call", "messages": [], "response": text, "tokens": 0})
 
-    def on_tool_end(self, output, *, name: str = "", **kwargs) -> None:
-        acc = TraceAccumulator.current()
+    def on_tool_start(self, serialized, input_str, *, run_id=None, **kwargs) -> None:
+        name = (serialized or {}).get("name", "")
+        try:
+            import json as _json
+            args = _json.loads(input_str) if isinstance(input_str, str) else (input_str or {})
+            if not isinstance(args, dict):
+                args = {"_raw": str(input_str)}
+        except Exception:
+            args = {"_raw": str(input_str)}
+        key = str(run_id) if run_id is not None else name
+        self._pending_tools[key] = {"name": name, "args": args}
+
+    def on_tool_end(self, output, *, name: str = "", run_id=None, **kwargs) -> None:
+        acc = self._acc()
         if acc is None:
             return
-        acc.push({"type": "tool_call", "name": name, "args": {}, "result": str(output)})
+        key = str(run_id) if run_id is not None else name
+        pending = self._pending_tools.pop(key, None)
+        acc.push({
+            "type": "tool_call",
+            "name": (pending or {}).get("name") or name,
+            "args": (pending or {}).get("args") or {},
+            "result": str(output),
+        })
 
 
 class LangGraphAdapter:

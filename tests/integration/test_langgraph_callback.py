@@ -153,3 +153,53 @@ def test_langgraph_adapter_passes_existing_callbacks(tmp_path):
 
     assert "spy_llm" in seen
     assert "spy_tool:search" in seen
+
+
+import uuid as _uuid
+
+class _MockGraphWithArgs:
+    """Fires on_tool_start then on_tool_end with matching run_id."""
+
+    def invoke(self, input_data, config=None, **kwargs):
+        run_id = str(_uuid.uuid4())
+        for cb in (config or {}).get("callbacks", []):
+            if hasattr(cb, "on_tool_start"):
+                cb.on_tool_start(
+                    {"name": "search"},
+                    '{"query": "agentsnap docs"}',
+                    run_id=run_id,
+                )
+            if hasattr(cb, "on_tool_end"):
+                cb.on_tool_end("Found 3 results.", name="search", run_id=run_id)
+        return "Done"
+
+    def stream(self, input_data, **kwargs):
+        return iter([])
+
+
+def test_callback_captures_tool_args_via_on_tool_start(tmp_path):
+    graph = LangGraphAdapter(_MockGraphWithArgs())
+    snap_dir = str(tmp_path / "snaps")
+
+    with AgentRecorder("lg_args", snapshot_dir=snap_dir) as rec:
+        rec.output = graph.invoke("query")
+
+    import json
+    data = json.loads((tmp_path / "snaps" / "lg_args.json").read_text())
+    tool_events = [e for e in data["trace"] if e["type"] == "tool_call"]
+    assert len(tool_events) == 1
+    assert tool_events[0]["args"] == {"query": "agentsnap docs"}
+    assert tool_events[0]["result"] == "Found 3 results."
+
+
+def test_tool_end_without_prior_start_still_records_event(tmp_path):
+    """on_tool_end must not crash if on_tool_start was never called."""
+    graph = LangGraphAdapter(_MockGraph())  # fires on_tool_end without on_tool_start
+    snap_dir = str(tmp_path / "snaps")
+    with AgentRecorder("lg_no_start", snapshot_dir=snap_dir) as rec:
+        rec.output = graph.invoke("query")
+    import json
+    data = json.loads((tmp_path / "snaps" / "lg_no_start.json").read_text())
+    tool_events = [e for e in data["trace"] if e["type"] == "tool_call"]
+    assert len(tool_events) == 1
+    assert tool_events[0]["args"] == {}

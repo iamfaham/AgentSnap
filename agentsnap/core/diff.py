@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from agentsnap.core.normalize import DEFAULT_VOLATILE_FIELDS, normalize_trace
+
 try:
     import numpy as np
 except ImportError:
@@ -333,8 +335,13 @@ def compute_diff(
     ignored_fields: list[str] | None = None,
     embed_fn: Callable[[list[str]], list[Any]] | None = None,
     judge: LLMJudge | None = None,
+    normalize: bool = True,
 ) -> DiffReport:
     """Compare a new trace against a golden snapshot.
+
+    normalize=True (default) strips volatile fields (tokens, timestamps, request IDs)
+    from both traces before comparison. Pass normalize=False in tests that explicitly
+    include token counts in expected output.
 
     Semantic comparison uses embedding cosine similarity by default.
     Pass judge=LLMJudge(...) to use an LLM for more accurate comparison.
@@ -346,6 +353,10 @@ def compute_diff(
     old_trace = old_snapshot["trace"]
     old_output = old_snapshot["output"]
     failed: list[str] = []
+
+    if normalize:
+        old_trace = normalize_trace(old_trace, DEFAULT_VOLATILE_FIELDS)
+        new_trace = normalize_trace(new_trace, DEFAULT_VOLATILE_FIELDS)
 
     struct = structural_diff(old_trace, new_trace)
     if struct:

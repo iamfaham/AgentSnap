@@ -42,6 +42,14 @@ class AgentRegressionError(Exception):
                 lines.append(f"[STRUCTURAL] {r.structural_diff}")
             lines.append("")
 
+        if r.structural_score is not None:
+            pct = int(r.structural_score * 100)
+            verdict = "FAIL" if "structural" in r.failed_checks else "PASS"
+            lines.append(f"  LLM judge: {pct}% equivalent [{verdict}]")
+            if r.structural_reason:
+                lines.append(f'  "{r.structural_reason}"')
+            lines.append("")
+
         for name, diff in (r.argument_diffs or {}).items():
             lines.append(f"[ARGS] {name}:")
             if isinstance(diff, dict):

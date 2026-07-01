@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agentsnap.core.diff import LLMJudge, compute_diff
+from agentsnap.core.diff import DiffConfig, LLMJudge, compute_diff
 from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
 from agentsnap.core.snapshot import read_snapshot, write_last_run, write_snapshot
 from agentsnap.exceptions import AgentRegressionError, SnapshotNotFoundError
-
-_DEFAULT_LLM_THRESHOLD_EMBED = 0.75
-_DEFAULT_LLM_THRESHOLD_JUDGE = 0.40
 
 
 class AgentAsserter:
@@ -31,13 +28,7 @@ class AgentAsserter:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
-        if llm_threshold is not None:
-            self.llm_threshold = llm_threshold
-        else:
-            self.llm_threshold = (
-                _DEFAULT_LLM_THRESHOLD_JUDGE if judge is not None
-                else _DEFAULT_LLM_THRESHOLD_EMBED
-            )
+        self.llm_threshold = llm_threshold  # None is fine; DiffConfig resolves at call time
         self.ignored_fields = ignored_fields or []
         self.embed_fn = embed_fn
         self.judge = judge
@@ -89,15 +80,18 @@ class AgentAsserter:
             self.output,
         )
 
+        config = DiffConfig(
+            semantic_threshold=self.semantic_threshold,
+            llm_threshold=self.llm_threshold,
+            ignored_fields=self.ignored_fields,
+            judge=self.judge,
+        )
         report = compute_diff(
             self._snapshot,
             new_trace,
             self.output,
-            semantic_threshold=self.semantic_threshold,
-            llm_threshold=self.llm_threshold,
-            ignored_fields=self.ignored_fields,
+            config=config,
             embed_fn=self.embed_fn,
-            judge=self.judge,
         )
         if not report.passed:
             raise AgentRegressionError(

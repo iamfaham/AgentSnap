@@ -80,9 +80,7 @@ class _AutoContext:
             print(f"\n  [agentsnap] recording '{self._test_name}'")
         else:
             self._ctx = self._asserter.__enter__()
-            if not self._asserter._record_mode:
-                print(f"\n  [agentsnap] asserting '{self._test_name}'")
-            # if _record_mode, AgentAsserter.__enter__ already printed the recording message
+            print(f"\n  [agentsnap] asserting '{self._test_name}'")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -107,6 +105,17 @@ class _AutoContext:
     def input_data(self, value) -> None:
         if self._is_record:
             self._recorder.input_data = value
+
+    @property
+    def input(self):
+        return self._asserter.input if not self._is_record else self._recorder.input_data
+
+    @input.setter
+    def input(self, value) -> None:
+        if self._is_record:
+            self._recorder.input_data = value
+        else:
+            self._asserter.input = value
 
 
 # -- Fixture ------------------------------------------------------------------
@@ -134,6 +143,7 @@ class SnapshotFixture:
         llm_threshold: float | None = None,
         ignored_fields: list[str] | None = None,
         judge: LLMJudge | None = None,
+        scenario: str | None = None,
     ) -> _AutoContext:
         """Auto context manager: records if no snapshot exists, asserts if it does.
 
@@ -143,15 +153,15 @@ class SnapshotFixture:
             with snapshot.run("my_agent") as s:
                 s.output = my_agent(client, tool, "test input")
         """
-        snap_exists = snapshot_path(test_name, self.snapshot_dir).exists()
+        snap_exists = snapshot_path(test_name, self.snapshot_dir, scenario=scenario).exists()
         is_record = not snap_exists or self.force_record
-        recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model)
-        asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge)
+        recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario)
+        asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge, scenario=scenario)
         return _AutoContext(test_name, recorder, asserter, is_record=is_record)
 
-    def record_agent(self, test_name: str, model: str = "unknown") -> AgentRecorder:
+    def record_agent(self, test_name: str, model: str = "unknown", scenario: str | None = None) -> AgentRecorder:
         """Explicit record mode."""
-        return AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model)
+        return AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario)
 
     def assert_agent(
         self,
@@ -161,9 +171,10 @@ class SnapshotFixture:
         ignored_fields: list[str] | None = None,
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
         judge: LLMJudge | None = None,
+        scenario: str | None = None,
     ) -> AgentAsserter:
         """Explicit assert mode. Pass judge=False to force embeddings."""
-        return self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge, embed_fn)
+        return self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge, embed_fn, scenario=scenario)
 
     def _make_asserter(
         self,
@@ -173,6 +184,7 @@ class SnapshotFixture:
         ignored_fields: list[str] | None,
         judge: LLMJudge | None,
         embed_fn: Callable | None = None,
+        scenario: str | None = None,
     ) -> AgentAsserter:
         effective_judge = judge if judge is not None else self.judge
         if judge is False:
@@ -185,6 +197,7 @@ class SnapshotFixture:
             ignored_fields=ignored_fields,
             embed_fn=embed_fn,
             judge=effective_judge,
+            scenario=scenario,
         )
 
 

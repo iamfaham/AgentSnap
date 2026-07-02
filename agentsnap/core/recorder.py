@@ -4,11 +4,11 @@ import threading
 from contextvars import ContextVar
 from typing import Any
 
-from agentsnap.core.snapshot import write_snapshot
+from agentsnap.core.snapshot import input_sha8, write_snapshot
 
 DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
 
-_accumulator_var: ContextVar[TraceAccumulator | None] = ContextVar(
+_accumulator_var: ContextVar["TraceAccumulator | None"] = ContextVar(
     "_accumulator_var", default=None
 )
 
@@ -33,7 +33,7 @@ class TraceAccumulator:
             return list(self._trace)
 
     @staticmethod
-    def current() -> TraceAccumulator | None:
+    def current() -> "TraceAccumulator | None":
         return _accumulator_var.get()
 
 
@@ -45,16 +45,25 @@ class AgentRecorder:
         test_name: str,
         snapshot_dir: str = DEFAULT_SNAPSHOT_DIR,
         model: str = "unknown",
+        scenario: str | None = None,
     ) -> None:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
         self.model = model
+        self.scenario = scenario
         self.input_data: Any = None
         self.output: str = ""
         self._accumulator: TraceAccumulator | None = None
         self._token = None
 
-    def __enter__(self) -> AgentRecorder:
+    def _resolved_scenario(self) -> str | None:
+        if self.scenario is not None:
+            return self.scenario
+        if self.input_data is not None:
+            return input_sha8(self.input_data)
+        return None
+
+    def __enter__(self) -> "AgentRecorder":
         self._accumulator = TraceAccumulator(model=self.model)
         self._token = _accumulator_var.set(self._accumulator)
         return self
@@ -70,6 +79,7 @@ class AgentRecorder:
                 self.input_data,
                 self._accumulator.trace,
                 self.output,
+                scenario=self._resolved_scenario(),
             )
         return False
 

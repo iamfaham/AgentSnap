@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 from agentsnap.core.diff import DiffConfig, LLMJudge, compute_diff
 from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
-from agentsnap.core.snapshot import read_snapshot, write_last_run, write_snapshot
+from agentsnap.core.snapshot import input_sha8, read_snapshot, write_last_run, write_snapshot
 from agentsnap.exceptions import AgentRegressionError, SnapshotNotFoundError
 
 
@@ -13,6 +13,9 @@ class AgentAsserter:
 
     On first use (no snapshot file), automatically records the run as the golden
     instead of raising SnapshotNotFoundError. Subsequent runs assert against it.
+
+    Snapshot read is deferred to __exit__ so that self.input (set inside the
+    with block) can drive auto-hash scenario resolution before the file is looked up.
     """
 
     def __init__(
@@ -24,31 +27,30 @@ class AgentAsserter:
         ignored_fields: list[str] | None = None,
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
         judge: LLMJudge | None = None,
+        scenario: str | None = None,
     ) -> None:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
-        self.llm_threshold = llm_threshold  # None is fine; DiffConfig resolves at call time
+        self.llm_threshold = llm_threshold
         self.ignored_fields = ignored_fields or []
         self.embed_fn = embed_fn
         self.judge = judge
+        self.scenario = scenario
         self.output: str = ""
+        self.input: Any = None
         self._accumulator: TraceAccumulator | None = None
-        self._snapshot: dict = {}
         self._token = None
-        self._record_mode: bool = False
 
-    def __enter__(self) -> AgentAsserter:
-        try:
-            self._snapshot = read_snapshot(self.test_name, self.snapshot_dir)
-            self._record_mode = False
-        except SnapshotNotFoundError:
-            self._snapshot = {}
-            self._record_mode = True
-            print(f"\n  [agentsnap] no snapshot for '{self.test_name}' - recording golden run")
-        self._accumulator = TraceAccumulator(
-            model=self._snapshot.get("model", "unknown")
-        )
+    def _resolved_scenario(self) -> str | None:
+        if self.scenario is not None:
+            return self.scenario
+        if self.input is not None:
+            return input_sha8(self.input)
+        return None
+
+    def __enter__(self) -> "AgentAsserter":
+        self._accumulator = TraceAccumulator(model="unknown")
         self._token = _accumulator_var.set(self._accumulator)
         return self
 
@@ -59,25 +61,47 @@ class AgentAsserter:
 
         assert self._accumulator is not None
         new_trace = self._accumulator.trace
+        scenario = self._resolved_scenario()
 
-        if self._record_mode:
+        try:
+            snapshot = read_snapshot(self.test_name, self.snapshot_dir, scenario=scenario)
+            record_mode = False
+        except SnapshotNotFoundError:
+            snapshot = {}
+            record_mode = True
+
+        if record_mode:
+            print(f"\n  [agentsnap] no snapshot for '{self.test_name}' - recording golden run")
             write_snapshot(
                 self.test_name,
                 self.snapshot_dir,
-                self._accumulator.model,
+                "unknown",
                 None,
                 new_trace,
                 self.output,
+                scenario=scenario,
             )
             return False
+
+        # Input binding warning
+        recorded_input = snapshot.get("input")
+        if recorded_input is not None and self.input is not None:
+            recorded_sha8 = input_sha8(recorded_input)
+            current_sha8 = input_sha8(self.input)
+            if recorded_sha8 != current_sha8:
+                print(f"\n  [agentsnap] WARNING: input changed since snapshot was recorded for '{self.test_name}'")
+                print(f"    recorded: sha8={recorded_sha8}")
+                print(f"    current:  sha8={current_sha8}")
+                print("    Comparison may be against the wrong baseline. Delete the snapshot file and re-record.")
 
         write_last_run(
             self.test_name,
             self.snapshot_dir,
             self._accumulator.model,
-            self._snapshot.get("input"),
+            snapshot.get("input"),
             new_trace,
             self.output,
+            scenario=scenario,
         )
 
         config = DiffConfig(
@@ -87,7 +111,7 @@ class AgentAsserter:
             judge=self.judge,
         )
         report = compute_diff(
-            self._snapshot,
+            snapshot,
             new_trace,
             self.output,
             config=config,
@@ -97,13 +121,13 @@ class AgentAsserter:
             raise AgentRegressionError(
                 self.test_name,
                 report,
-                self._snapshot,
+                snapshot,
                 new_trace,
                 self.output,
             )
 
         scores = report.semantic_scores or {}
-        parts = ["structural: ok"] if not report.structural_diff else [f"structural: mismatch"]
+        parts = ["structural: ok"] if not report.structural_diff else ["structural: mismatch"]
         for step, score in scores.items():
             parts.append(f"{step}: {int(score * 100)}%")
         print(f"  [agentsnap] '{self.test_name}' PASSED | {' | '.join(parts)}")

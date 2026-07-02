@@ -8,6 +8,7 @@ from agentsnap.adapters.anthropic import AnthropicAdapter
 from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
+from agentsnap.core.snapshot import input_sha8, snapshot_path
 from agentsnap.exceptions import AgentRegressionError
 from tests.fixtures.mock_agents import (
     MockAnthropicClient,
@@ -256,3 +257,101 @@ def test_last_run_written_on_assert(tmp_path):
         pass
 
     assert last_run_path(name, snapshot_dir).exists()
+
+
+# ── Scenario / input-binding tests ────────────────────────────────────────────
+
+def test_recorder_explicit_scenario_namespaces_file(tmp_path):
+    snap_dir = str(tmp_path)
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="query_a") as r:
+        r.output = "answer A"
+
+    assert snapshot_path("agent", snap_dir, scenario="query_a").exists()
+    assert not snapshot_path("agent", snap_dir).exists()
+
+
+def test_recorder_auto_hash_from_input_data(tmp_path):
+    snap_dir = str(tmp_path)
+    inp = {"query": "what is 2+2?"}
+    with AgentRecorder("agent", snapshot_dir=snap_dir) as r:
+        r.input_data = inp
+        r.output = "4"
+
+    sha = input_sha8(inp)
+    assert snapshot_path("agent", snap_dir, scenario=sha).exists()
+
+
+def test_recorder_no_input_uses_plain_path(tmp_path):
+    snap_dir = str(tmp_path)
+    with AgentRecorder("agent", snapshot_dir=snap_dir) as r:
+        r.output = "result"
+
+    assert snapshot_path("agent", snap_dir).exists()
+
+
+def test_asserter_explicit_scenario_roundtrip(tmp_path):
+    snap_dir = str(tmp_path)
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="s1") as r:
+        r.output = "the answer"
+
+    with AgentAsserter("agent", snapshot_dir=snap_dir, scenario="s1",
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.output = "the answer"
+    # No exception = pass
+
+
+def test_asserter_auto_hash_from_input_roundtrip(tmp_path):
+    """a.input set inside the with block must drive scenario resolution."""
+    snap_dir = str(tmp_path)
+    inp = {"query": "test question"}
+
+    # Record using explicit scenario matching what asserter will auto-hash to
+    sha = input_sha8(inp)
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario=sha) as r:
+        r.output = "test answer"
+
+    # Assert: set a.input inside the with block; asserter auto-hashes it
+    with AgentAsserter("agent", snapshot_dir=snap_dir,
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.input = inp
+        a.output = "test answer"
+    # No exception = pass
+
+
+def test_input_binding_warning_on_mismatch(tmp_path, capsys):
+    snap_dir = str(tmp_path)
+
+    # Record with explicit scenario and original input stored in snapshot
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="fixed") as r:
+        r.input_data = {"q": "original query"}
+        r.output = "result"
+
+    # Assert with same scenario but set a.input to a different value
+    with AgentAsserter("agent", snapshot_dir=snap_dir, scenario="fixed",
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.input = {"q": "completely different query"}
+        a.output = "result"
+
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.out
+    assert "input changed" in captured.out
+
+
+def test_input_binding_no_warning_when_inputs_match(tmp_path, capsys):
+    snap_dir = str(tmp_path)
+
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="fixed") as r:
+        r.input_data = {"q": "same query"}
+        r.output = "result"
+
+    with AgentAsserter("agent", snapshot_dir=snap_dir, scenario="fixed",
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.input = {"q": "same query"}
+        a.output = "result"
+
+    captured = capsys.readouterr()
+    assert "WARNING" not in captured.out

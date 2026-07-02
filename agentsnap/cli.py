@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from agentsnap.core.snapshot import list_snapshots, last_run_path, snapshot_path
+from agentsnap.core.snapshot import list_snapshots
 
 DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
 
@@ -89,30 +89,48 @@ def _print_update_diff(old: dict, new: dict) -> None:
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt.")
 def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
-    """Show what changed and promote the last run to the golden snapshot."""
-    src = last_run_path(test_name, snapshot_dir)
-    dst = snapshot_path(test_name, snapshot_dir)
+    """Show what changed and promote the last run to the golden snapshot.
 
-    if not src.exists():
+    Promotes all scenario variants: {test_name}.json and {test_name}__*.json.
+    """
+    last_run_dir = Path(snapshot_dir) / ".last_run"
+
+    # Collect all last_run files for this test_name (plain + all scenario variants)
+    candidates: list[Path] = []
+    plain = last_run_dir / f"{test_name}.json"
+    if plain.exists():
+        candidates.append(plain)
+    candidates.extend(sorted(last_run_dir.glob(f"{test_name}__*.json")))
+
+    if not candidates:
         click.echo(
             f"No last run found for '{test_name}'. Run 'agentsnap run' first.", err=True
         )
         raise SystemExit(1)
 
-    if dst.exists():
-        old = json.loads(dst.read_text(encoding="utf-8"))
-        new = json.loads(src.read_text(encoding="utf-8"))
-        _print_update_diff(old, new)
-    else:
-        click.echo("No existing snapshot - will create a new golden.")
+    # Build (src, dst) pairs and show diffs
+    pairs: list[tuple[Path, Path]] = []
+    for src in candidates:
+        # Strip .last_run/ directory — golden lives directly in snapshot_dir
+        dst = Path(snapshot_dir) / src.name
+        pairs.append((src, dst))
+
+        if dst.exists():
+            old = json.loads(dst.read_text(encoding="utf-8"))
+            new = json.loads(src.read_text(encoding="utf-8"))
+            click.echo(f"\n--- {src.name} ---")
+            _print_update_diff(old, new)
+        else:
+            click.echo(f"\n--- {src.name} --- (new golden)")
 
     if not yes:
-        if not click.confirm("\nApprove and update snapshot?"):
+        if not click.confirm(f"\nApprove and update {len(pairs)} snapshot(s)?"):
             click.echo("Aborted.")
             raise SystemExit(1)
 
-    shutil.copy2(src, dst)
-    click.echo(f"Updated snapshot: {dst}")
+    for src, dst in pairs:
+        shutil.copy2(src, dst)
+        click.echo(f"Updated snapshot: {dst}")
 
 
 @cli.command("init")

@@ -28,6 +28,7 @@ class AgentAsserter:
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
         judge: LLMJudge | None = None,
         scenario: str | None = None,
+        structural_tolerance: int = 0,
     ) -> None:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
@@ -37,6 +38,7 @@ class AgentAsserter:
         self.embed_fn = embed_fn
         self.judge = judge
         self.scenario = scenario
+        self.structural_tolerance = structural_tolerance
         self.output: str = ""
         self.input: Any = None
         self._accumulator: TraceAccumulator | None = None
@@ -109,6 +111,7 @@ class AgentAsserter:
             llm_threshold=self.llm_threshold,
             ignored_fields=self.ignored_fields,
             judge=self.judge,
+            structural_tolerance=self.structural_tolerance,
         )
         report = compute_diff(
             snapshot,

@@ -30,6 +30,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addini("agentsnap_judge_base_url",     default=None,   help="Base URL for judge LLM API")
     parser.addini("agentsnap_semantic_threshold", default="0.92", help="Threshold for final output similarity")
     parser.addini("agentsnap_llm_threshold",      default="0.75", help="Threshold for intermediate LLM response similarity")
+    parser.addini(
+        "agentsnap_structural_tolerance",
+        default=None,
+        help="Max allowed Levenshtein edit distance in tool call sequence before structural check fails",
+    )
     parser.addoption(
         "--agentsnap-record",
         action="store_true",
@@ -128,12 +133,14 @@ class SnapshotFixture:
         llm_threshold: float,
         judge: LLMJudge | None,
         force_record: bool = False,
+        structural_tolerance: int = 0,
     ) -> None:
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
         self.llm_threshold = llm_threshold
         self.judge = judge
         self.force_record = force_record
+        self.structural_tolerance = structural_tolerance
 
     def run(
         self,
@@ -144,6 +151,7 @@ class SnapshotFixture:
         ignored_fields: list[str] | None = None,
         judge: LLMJudge | None = None,
         scenario: str | None = None,
+        structural_tolerance: int | None = None,
     ) -> _AutoContext:
         """Auto context manager: records if no snapshot exists, asserts if it does.
 
@@ -156,7 +164,8 @@ class SnapshotFixture:
         snap_exists = snapshot_path(test_name, self.snapshot_dir, scenario=scenario).exists()
         is_record = not snap_exists or self.force_record
         recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario)
-        asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge, scenario=scenario)
+        asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields,
+                                       judge, scenario=scenario, structural_tolerance=structural_tolerance)
         return _AutoContext(test_name, recorder, asserter, is_record=is_record)
 
     def record_agent(self, test_name: str, model: str = "unknown", scenario: str | None = None) -> AgentRecorder:
@@ -172,9 +181,12 @@ class SnapshotFixture:
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
         judge: LLMJudge | None = None,
         scenario: str | None = None,
+        structural_tolerance: int | None = None,
     ) -> AgentAsserter:
         """Explicit assert mode. Pass judge=False to force embeddings."""
-        return self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge, embed_fn, scenario=scenario)
+        return self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields,
+                                   judge, embed_fn, scenario=scenario,
+                                   structural_tolerance=structural_tolerance)
 
     def _make_asserter(
         self,
@@ -185,6 +197,7 @@ class SnapshotFixture:
         judge: LLMJudge | None,
         embed_fn: Callable | None = None,
         scenario: str | None = None,
+        structural_tolerance: int | None = None,
     ) -> AgentAsserter:
         effective_judge = judge if judge is not None else self.judge
         if judge is False:
@@ -198,6 +211,7 @@ class SnapshotFixture:
             embed_fn=embed_fn,
             judge=effective_judge,
             scenario=scenario,
+            structural_tolerance=structural_tolerance if structural_tolerance is not None else self.structural_tolerance,
         )
 
 
@@ -241,8 +255,9 @@ def snapshot(request: pytest.FixtureRequest):
     snapshot_dir = _find_snapshot_dir(request)
     cfg = load(Path(request.fspath).parent)
 
-    semantic_threshold = float(_ini(request, "agentsnap_semantic_threshold", cfg["semantic_threshold"]))
-    llm_threshold      = float(_ini(request, "agentsnap_llm_threshold",      cfg["llm_threshold"]))
+    semantic_threshold   = float(_ini(request, "agentsnap_semantic_threshold",   cfg["semantic_threshold"]))
+    llm_threshold        = float(_ini(request, "agentsnap_llm_threshold",        cfg["llm_threshold"]))
+    structural_tolerance = int(_ini(request, "agentsnap_structural_tolerance", cfg.get("structural_tolerance", 0)))
 
     judge: LLMJudge | None = None
     api_key = cfg.get("judge_api_key")
@@ -260,6 +275,7 @@ def snapshot(request: pytest.FixtureRequest):
         llm_threshold=llm_threshold,
         judge=judge,
         force_record=force_record,
+        structural_tolerance=structural_tolerance,
     )
 
     if instrument:

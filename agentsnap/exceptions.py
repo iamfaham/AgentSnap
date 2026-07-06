@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agentsnap.core.diff import DiffReport
+
+
+def _excerpt(text: str, max_len: int = 200) -> str:
+    return text if len(text) <= max_len else text[:max_len] + "..."
 
 
 class AgentRegressionError(Exception):
@@ -29,7 +33,6 @@ class AgentRegressionError(Exception):
         lines = [header, "=" * len(header), ""]
 
         if r.structural_diff:
-            import re
             m = re.search(r"\[([^\]]*)\] -> \[([^\]]*)\]", r.structural_diff)
             if m:
                 old_tools = [t.strip().strip("'") for t in m.group(1).split(",") if t.strip()]
@@ -54,7 +57,7 @@ class AgentRegressionError(Exception):
             lines.append(f"[ARGS] {name}:")
             if isinstance(diff, dict):
                 for field, (old_val, new_val) in diff.get("changed", {}).items():
-                    lines.append(f"  {field}: {old_val!r} → {new_val!r}")
+                    lines.append(f"  {field}: {old_val!r} -> {new_val!r}")
                 for field, val in diff.get("added", {}).items():
                     lines.append(f"  + {field}: {val!r}")
                 for field, val in diff.get("removed", {}).items():
@@ -64,6 +67,9 @@ class AgentRegressionError(Exception):
             lines.append("")
 
         old_output = self._old_snapshot.get("output", "")
+        old_llm_calls = [s for s in self._old_snapshot.get("trace", []) if s.get("type") == "llm_call"]
+        new_llm_calls = [s for s in self._new_trace if s.get("type") == "llm_call"]
+
         for step, score in (r.semantic_scores or {}).items():
             pct = int(score * 100)
             failed = f"semantic:{step}" in r.failed_checks
@@ -71,9 +77,19 @@ class AgentRegressionError(Exception):
             reason = (r.semantic_reasons or {}).get(step, "")
             reason_str = f'  "{reason}"' if reason else ""
             lines.append(f"[SEMANTIC] {step}: {pct}% {verdict}{reason_str}")
-            if step == "output" and failed:
-                lines.append(f"  was: {old_output!r}")
-                lines.append(f"  now: {self._new_output!r}")
+            if failed:
+                if step == "output":
+                    lines.append(f"  was: {_excerpt(old_output)!r}")
+                    lines.append(f"  now: {_excerpt(self._new_output)!r}")
+                else:
+                    m = re.match(r"llm_call\[(\d+)\]", step)
+                    if m:
+                        idx = int(m.group(1))
+                        old_resp = old_llm_calls[idx].get("response", "") if idx < len(old_llm_calls) else "<missing>"
+                        new_resp = new_llm_calls[idx].get("response", "") if idx < len(new_llm_calls) else "<missing>"
+                        if old_resp != "<missing>" or new_resp != "<missing>":
+                            lines.append(f"  was: {_excerpt(old_resp)!r}")
+                            lines.append(f"  now: {_excerpt(new_resp)!r}")
 
         lines.append("")
         lines.append(f"Failed checks: {r.failed_checks}")

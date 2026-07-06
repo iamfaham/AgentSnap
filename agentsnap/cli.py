@@ -43,16 +43,83 @@ def run_cmd(test_file: str, snapshot_dir: str) -> None:
     raise SystemExit(result.returncode)
 
 
-@cli.command("diff")
+@cli.command("show")
 @click.argument("snapshot_file")
-def diff_cmd(snapshot_file: str) -> None:
-    """Pretty-print snapshot contents."""
+def show_cmd(snapshot_file: str) -> None:
+    """Pretty-print snapshot contents as JSON."""
     path = Path(snapshot_file)
     if not path.exists():
         click.echo(f"Snapshot not found: {snapshot_file}", err=True)
         raise SystemExit(1)
     data = json.loads(path.read_text(encoding="utf-8"))
     click.echo(json.dumps(data, indent=2, sort_keys=True))
+
+
+@cli.command("diff")
+@click.argument("test_name")
+@click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
+@click.option("--scenario", default=None, help="Scenario variant to compare (optional).")
+def diff_cmd(test_name: str, snapshot_dir: str, scenario: str | None) -> None:
+    """Compare the last run against the golden snapshot and show what changed.
+
+    Exits 0 if the comparison passed, 1 if it failed or no backend is configured.
+    Run 'agentsnap show <file>' to pretty-print a snapshot file as JSON.
+    """
+    from agentsnap.config import judge_from_env, load
+    from agentsnap.core.diff import DiffConfig, compute_diff
+    from agentsnap.core.snapshot import last_run_path, snapshot_path
+
+    golden_p = snapshot_path(test_name, snapshot_dir, scenario=scenario)
+    last_run_p = last_run_path(test_name, snapshot_dir, scenario=scenario)
+
+    if not golden_p.exists():
+        click.echo(f"No golden snapshot found for '{test_name}' in '{snapshot_dir}'.", err=True)
+        raise SystemExit(1)
+    if not last_run_p.exists():
+        click.echo(
+            f"No last run found for '{test_name}'. Run your tests first to generate one.", err=True
+        )
+        raise SystemExit(1)
+
+    golden = json.loads(golden_p.read_text(encoding="utf-8"))
+    run_data = json.loads(last_run_p.read_text(encoding="utf-8"))
+
+    judge = judge_from_env()
+    cfg = load()
+    config = DiffConfig(
+        semantic_threshold=float(cfg.get("semantic_threshold", 0.92)),
+        llm_threshold=float(cfg.get("llm_threshold", 0.75)),
+        structural_tolerance=int(cfg.get("structural_tolerance", 0)),
+        judge=judge,
+    )
+
+    try:
+        report = compute_diff(
+            golden,
+            run_data.get("trace", []),
+            run_data.get("output", ""),
+            config=config,
+        )
+    except RuntimeError as exc:
+        click.echo(f"Cannot compare: {exc}", err=True)
+        click.echo("Run 'agentsnap init' to configure a comparison backend.", err=True)
+        raise SystemExit(1)
+
+    if report.passed:
+        scores = report.semantic_scores or {}
+        parts = ["structural: ok"] if not report.structural_diff else ["structural: mismatch"]
+        for step, score in scores.items():
+            parts.append(f"{step}: {int(score * 100)}%")
+        click.echo(f"agentsnap diff '{test_name}': PASSED")
+        click.echo(f"  {' | '.join(parts)}")
+    else:
+        from agentsnap.exceptions import AgentRegressionError
+        err = AgentRegressionError(
+            test_name, report, golden, run_data.get("trace", []), run_data.get("output", "")
+        )
+        click.echo(f"agentsnap diff '{test_name}': FAILED")
+        click.echo(str(err))
+        raise SystemExit(1)
 
 
 def _print_update_diff(old: dict, new: dict) -> None:

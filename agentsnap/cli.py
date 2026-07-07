@@ -107,7 +107,7 @@ def diff_cmd(test_name: str, snapshot_dir: str, scenario: str | None) -> None:
 
     if report.passed:
         scores = report.semantic_scores or {}
-        parts = ["structural: ok"] if not report.structural_diff else ["structural: mismatch"]
+        parts = ["structural: ok"]
         for step, score in scores.items():
             parts.append(f"{step}: {int(score * 100)}%")
         click.echo(f"agentsnap diff '{test_name}': PASSED")

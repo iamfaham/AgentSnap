@@ -106,3 +106,18 @@ class SnapshotNotFoundError(Exception):
 
 class AdapterNotWrappedError(Exception):
     """Raised when an unwrapped client is used inside a recording context."""
+
+
+class SnapshotFormatError(Exception):
+    """Snapshot file cannot be used for the requested operation.
+
+    Raised when replay mode is requested on a snapshot recorded before
+    raw responses were captured (version 1.0 files)."""
+
+
+class ReplayError(Exception):
+    """Replay diverged from the recording.
+
+    Raised when the agent makes more LLM calls than the snapshot contains,
+    tool call order changes under replay_tools=True, or the provider does
+    not support replay yet."""

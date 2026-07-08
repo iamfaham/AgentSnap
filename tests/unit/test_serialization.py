@@ -31,10 +31,11 @@ _TRACE = [
 
 
 def test_round_trip(tmp_path):
+    from agentsnap.core.snapshot import SNAPSHOT_VERSION
     snapshot_dir = str(tmp_path / "snaps")
     write_snapshot("t1", snapshot_dir, "claude-3", {"input": "hello"}, _TRACE, "hi there")
     loaded = read_snapshot("t1", snapshot_dir)
-    assert loaded["version"] == "1.0"
+    assert loaded["version"] == SNAPSHOT_VERSION
     assert loaded["model"] == "claude-3"
     assert loaded["output"] == "hi there"
     assert loaded["trace"] == _TRACE
@@ -160,3 +161,10 @@ def test_input_sha8_non_serializable_does_not_raise():
 
     # Determinism: same custom repr → same hash
     assert input_sha8({"ts": datetime(2024, 1, 1)}) == input_sha8({"ts": datetime(2024, 1, 1)})
+
+
+def test_snapshot_version_is_1_1(tmp_path):
+    from agentsnap.core.snapshot import SNAPSHOT_VERSION, write_snapshot, read_snapshot
+    assert SNAPSHOT_VERSION == "1.1"
+    write_snapshot("v11", str(tmp_path), "m", None, [], "out")
+    assert read_snapshot("v11", str(tmp_path))["version"] == "1.1"

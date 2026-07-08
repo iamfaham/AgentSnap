@@ -119,3 +119,17 @@ def test_missing_new_trace_step_shows_missing_placeholder():
     msg = str(err)
     assert "golden step 2" in msg
     assert "<missing>" in msg
+
+
+def test_snapshot_format_error_is_exception():
+    from agentsnap.exceptions import SnapshotFormatError
+    err = SnapshotFormatError("old format")
+    assert isinstance(err, Exception)
+    assert "old format" in str(err)
+
+
+def test_replay_error_is_exception():
+    from agentsnap.exceptions import ReplayError
+    err = ReplayError("extra call")
+    assert isinstance(err, Exception)
+    assert "extra call" in str(err)

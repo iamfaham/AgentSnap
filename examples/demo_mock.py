@@ -184,6 +184,13 @@ def patchset_demo(snapshot_dir: str) -> None:
     print("  Your agent code stays completely unchanged.")
     print("  Just wrap your tests with PatchSet.\n")
 
+    # Clean slate so Step 1 always records a fresh golden
+    import shutil as _shutil
+    from agentsnap.core.snapshot import snapshot_path as _snap_path, last_run_path as _lr_path
+    for _p in [_snap_path("demo_patchset", snapshot_dir), _lr_path("demo_patchset", snapshot_dir)]:
+        if _p.exists():
+            _p.unlink()
+
     # ----- Your agent function (zero agentsnap imports) ----------------------
     def my_agent(query: str) -> str:
         """Simulates a user's agent -- raw SDK, no agentsnap code."""

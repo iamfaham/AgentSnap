@@ -318,3 +318,7 @@ def list_cmd(snapshot_dir: str) -> None:
 
 def main() -> None:
     cli()
+
+
+if __name__ == "__main__":
+    main()

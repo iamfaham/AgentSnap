@@ -8,26 +8,31 @@ resolution-markers = [
 
 [[package]]
 name = "agentsnap"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
-    { name = "anthropic" },
     { name = "click" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "openai" },
     { name = "pytest" },
     { name = "python-dotenv" },
-    { name = "sentence-transformers" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "tomlkit" },
 ]
 
 [package.optional-dependencies]
 all-providers = [
+    { name = "anthropic" },
     { name = "cohere" },
     { name = "google-genai" },
     { name = "groq" },
     { name = "langgraph" },
     { name = "mistralai" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "sentence-transformers" },
+]
+anthropic = [
+    { name = "anthropic" },
 ]
 cohere = [
     { name = "cohere" },
@@ -48,10 +53,16 @@ langgraph = [
 mistral = [
     { name = "mistralai" },
 ]
+offline = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "sentence-transformers" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.25" },
+    { name = "anthropic", marker = "extra == 'all-providers'", specifier = ">=0.25" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.25" },
     { name = "click", specifier = ">=8.0" },
     { name = "cohere", marker = "extra == 'all-providers'", specifier = ">=5.0" },
     { name = "cohere", marker = "extra == 'cohere'", specifier = ">=5.0" },
@@ -63,15 +74,19 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'langgraph'" },
     { name = "mistralai", marker = "extra == 'all-providers'", specifier = ">=1.0" },
     { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=1.0" },
-    { name = "numpy", specifier = ">=1.24" },
+    { name = "numpy", marker = "extra == 'all-providers'", specifier = ">=1.24" },
+    { name = "numpy", marker = "extra == 'offline'", specifier = ">=1.24" },
     { name = "openai", specifier = ">=1.0" },
     { name = "pytest", specifier = ">=7.0" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "sentence-transformers", specifier = ">=2.0" },
+    { name = "sentence-transformers", marker = "extra == 'all-providers'", specifier = ">=2.0" },
+    { name = "sentence-transformers", marker = "extra == 'offline'", specifier = ">=2.0" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
+    { name = "tomlkit", specifier = ">=0.12" },
 ]
-provides-extras = ["langgraph", "google", "cohere", "mistral", "groq", "all-providers", "dev"]
+provides-extras = ["offline", "anthropic", "langgraph", "google", "cohere", "mistral", "groq", "all-providers", "dev"]
 
 [[package]]
 name = "annotated-doc"
@@ -2715,6 +2730,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/12/64/da524626d3b9cc40c168a13da8335fe1c51be12c0a63685cc6db7308daae/tomli-2.4.1-cp314-cp314t-win_amd64.whl", hash = "sha256:2c1c351919aca02858f740c6d33adea0c5deea37f9ecca1cc1ef9e884a619d26", size = 121196, upload-time = "2026-03-25T20:22:01.169Z" },
     { url = "https://files.pythonhosted.org/packages/5a/cd/e80b62269fc78fc36c9af5a6b89c835baa8af28ff5ad28c7028d60860320/tomli-2.4.1-cp314-cp314t-win_arm64.whl", hash = "sha256:eab21f45c7f66c13f2a9e0e1535309cee140182a9cdae1e041d02e47291e8396", size = 100393, upload-time = "2026-03-25T20:22:02.137Z" },
     { url = "https://files.pythonhosted.org/packages/7b/61/cceae43728b7de99d9b847560c262873a1f6c98202171fd5ed62640b494b/tomli-2.4.1-py3-none-any.whl", hash = "sha256:0d85819802132122da43cb86656f8d1f8c6587d54ae7dcaf30e90533028b49fe", size = 14583, upload-time = "2026-03-25T20:22:03.012Z" },
+]
+
+[[package]]
+name = "tomlkit"
+version = "0.15.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/db/03eaf4331631ef6b27d6e3c9b68c54dc6f0d63d87201fed600cc409307fd/tomlkit-0.15.0.tar.gz", hash = "sha256:7d1a9ecba3086638211b13814ea79c90dd54dd11993564376f3aa92271f5c7a3", size = 161875, upload-time = "2026-05-10T07:38:22.245Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6a/43/8bd850ee71a191bf072e31302c73a66be413fecdd98fdcd111ecbcce13ca/tomlkit-0.15.0-py3-none-any.whl", hash = "sha256:4dbc8f0fc024412b57ced8757ac7461305126a648ff8c2c807fcb8e133a78738", size = 41328, upload-time = "2026-05-10T07:38:23.517Z" },
 ]
 
 [[package]]

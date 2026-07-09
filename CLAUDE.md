@@ -83,7 +83,7 @@ Every adapter checks `TraceAccumulator.current()`, forwards the real call, pushe
 
 **Snapshot files** — `__agent_snapshots__/*.json` are committed (source of truth). `__agent_snapshots__/.last_run/*.json` are written on every assert run; gitignored; used by `agentsnap update` to approve regressions.
 
-**Replay mode** (`core/replay.py`) — `AgentAsserter(mode="replay")` replays recorded `raw_response` payloads through the adapters instead of calling live APIs; the diff flips to request-side comparison (`compare_llm_requests` in `DiffConfig`). Anthropic/OpenAI only; other adapters raise `ReplayError` in replay mode.
+**Replay mode** (`core/replay.py`) — `AgentAsserter(mode="replay")` replays recorded `raw_response` payloads through the adapters instead of calling live APIs; the diff flips to request-side comparison (`compare_llm_requests` in `DiffConfig`). Anthropic/OpenAI (plus Groq/OpenRouter via OpenAIAdapter subclass); other adapters raise `ReplayError` in replay mode.
 
 **Adapters** — `stream=False` is forced in OpenAI and Mistral adapters to prevent partial streaming responses from being recorded. Groq and OpenRouter subclass `OpenAIAdapter` directly (OpenAI-compatible interface). All new adapters must also force `stream=False` if the SDK supports streaming.
 

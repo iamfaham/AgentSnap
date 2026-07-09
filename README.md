@@ -94,6 +94,48 @@ pytest --agentsnap-instrument
 
 ---
 
+## Replay vs live mode
+
+Every assert can run in one of two modes:
+
+| Mode | LLM calls | Catches | Best for |
+|------|-----------|---------|----------|
+| `live` (default) | Real API | Model/behavior drift | Nightly runs, pre-release |
+| `replay` | None — recorded responses are replayed | Code regressions: prompt edits, tool wiring, loop logic | Every PR / CI |
+
+In replay mode the recorded response for each LLM call is fed back to your
+agent — no API key, no cost, no flakes. The comparison flips to the **request
+side**: agentsnap fails the test if your code sends different prompts, makes a
+different number of LLM calls, or changes the tool sequence.
+
+```python
+# per test
+with AgentAsserter("my_agent", mode="replay") as a: ...
+
+# whole suite
+pytest --agentsnap-replay        # force replay
+pytest --agentsnap-live          # force live
+```
+
+```toml
+[tool.agentsnap]
+mode = "replay"   # make replay the project default
+```
+
+Tool calls still execute for real in replay mode. Pass `replay_tools=True` to
+stub them from the recording too (no side effects at all).
+
+Notes:
+- Replay needs snapshots recorded with agentsnap >= 0.2.0 (they include
+  `raw_response`). Older snapshots raise `SnapshotFormatError` — re-record
+  with `pytest --agentsnap-record`.
+- Replay currently supports Anthropic, OpenAI, Groq, and OpenRouter.
+  Other providers raise `ReplayError` — use live mode for those tests.
+- With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash
+  is not available because the snapshot is read before the test body runs).
+
+---
+
 ## Supported providers
 
 | Provider | Adapter | Intercepts |
@@ -180,6 +222,7 @@ judge_model        = "openai/gpt-4o-mini"
 judge_base_url     = "https://openrouter.ai/api/v1"
 semantic_threshold = 0.92   # final agent output (strict)
 llm_threshold      = 0.75   # intermediate LLM responses (tolerant)
+mode               = "live"   # "live" (default) or "replay"
 ```
 
 These can also be set as pytest ini options:
@@ -282,10 +325,14 @@ def test_agent(snapshot):
 |------|-------------|
 | `--agentsnap-record` | Force re-record all snapshots, overwriting existing goldens |
 | `--agentsnap-instrument` | Auto-patch all installed LLM SDKs (zero-instrumentation mode) |
+| `--agentsnap-replay` | Force replay mode for every test in the session |
+| `--agentsnap-live` | Force live mode for every test in the session |
 
 ```bash
 pytest --agentsnap-record        # re-record everything
 pytest --agentsnap-instrument    # capture raw clients without adapters
+pytest --agentsnap-replay        # force replay mode
+pytest --agentsnap-live          # force live mode
 ```
 
 ### `agentsnap_instrument` fixture
@@ -328,12 +375,12 @@ agentsnap update my_agent --yes                    # approve without confirmatio
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "recorded_at": "2026-01-01T00:00:00+00:00",
   "model": "claude-haiku-4-5",
   "input": { "query": "What is Python?" },
   "trace": [
-    { "step": 0, "type": "llm_call", "messages": [...], "response": "...", "tokens": 350 },
+    { "step": 0, "type": "llm_call", "messages": [...], "response": "...", "tokens": 350, "raw_response": {...} },
     { "step": 1, "type": "tool_call", "name": "search", "args": {"query": "Python"}, "result": "..." }
   ],
   "output": "Python is a high-level programming language..."

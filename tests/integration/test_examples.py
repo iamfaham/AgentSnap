@@ -51,6 +51,23 @@ def test_demo_real_exits_zero_without_keys(tmp_path):
     assert "skipped" in result.stdout.lower()
 
 
+def test_demo_replay_runs_clean():
+    """demo_replay.py must record, replay with zero live calls, and catch a prompt edit."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "demo_replay.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"demo_replay.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "PASSED deterministically" in result.stdout
+    assert "Caught the prompt change" in result.stdout
+
+
 def test_demo_mock_includes_zero_instrumentation(tmp_path):
     """demo_mock.py stdout must mention zero-instrumentation."""
     result = subprocess.run(

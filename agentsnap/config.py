@@ -67,6 +67,7 @@ DEFAULTS: dict[str, Any] = {
     "semantic_threshold":    0.92,
     "llm_threshold":         0.75,
     "structural_tolerance":  0,
+    "mode":                  "live",
 }
 
 

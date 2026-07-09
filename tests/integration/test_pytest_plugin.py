@@ -99,3 +99,49 @@ def test_force_record_false_asserts_when_snapshot_exists(tmp_path):
         client = _make_client()
         tool = ToolAdapter(_search, name="search")
         s.output = SimpleToolAgent(client, tool, "hello")
+
+
+def test_config_default_mode_is_live():
+    from agentsnap.config import DEFAULTS
+    assert DEFAULTS["mode"] == "live"
+
+
+def test_snapshot_fixture_passes_mode_to_asserter(tmp_path):
+    from agentsnap.pytest_plugin import SnapshotFixture
+
+    fixture = SnapshotFixture(
+        snapshot_dir=str(tmp_path),
+        semantic_threshold=0.9,
+        llm_threshold=0.7,
+        judge=None,
+        mode="replay",
+    )
+    asserter = fixture.assert_agent("t")
+    assert asserter.mode == "replay"
+
+
+def test_per_test_mode_override_wins(tmp_path):
+    from agentsnap.pytest_plugin import SnapshotFixture
+
+    fixture = SnapshotFixture(
+        snapshot_dir=str(tmp_path),
+        semantic_threshold=0.9,
+        llm_threshold=0.7,
+        judge=None,
+        mode="replay",
+    )
+    asserter = fixture.assert_agent("t", mode="live")
+    assert asserter.mode == "live"
+
+
+def test_replay_tools_passthrough(tmp_path):
+    from agentsnap.pytest_plugin import SnapshotFixture
+
+    fixture = SnapshotFixture(
+        snapshot_dir=str(tmp_path),
+        semantic_threshold=0.9,
+        llm_threshold=0.7,
+        judge=None,
+    )
+    asserter = fixture.assert_agent("t", mode="replay", replay_tools=True)
+    assert asserter.replay_tools is True

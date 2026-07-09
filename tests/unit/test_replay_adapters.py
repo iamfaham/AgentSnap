@@ -74,3 +74,47 @@ def test_adapter_passthrough_without_accumulator():
     client = AnthropicAdapter(MockAnthropicClient([MockAnthropicResponse("live")]))
     resp = client.messages.create(model="m", messages=[], max_tokens=10)
     assert resp.content[0].text == "live"
+
+
+def test_tool_adapter_executes_real_tool_in_replay_by_default():
+    from agentsnap.adapters.tool import ToolAdapter
+    trace = GOLDEN_TRACE + [
+        {"step": 1, "type": "tool_call", "name": "search", "args": {"q": "x"}, "result": "recorded result"},
+    ]
+    acc = TraceAccumulator(replay=ReplaySession(trace, replay_tools=False))
+    token = _accumulator_var.set(acc)
+    try:
+        tool = ToolAdapter(lambda **kw: "real result", name="search")
+        assert tool(q="x") == "real result"
+    finally:
+        _accumulator_var.reset(token)
+
+
+def test_tool_adapter_replays_recorded_result_when_enabled():
+    from agentsnap.adapters.tool import ToolAdapter
+    trace = GOLDEN_TRACE + [
+        {"step": 1, "type": "tool_call", "name": "search", "args": {"q": "x"}, "result": "recorded result"},
+    ]
+    acc = TraceAccumulator(replay=ReplaySession(trace, replay_tools=True))
+    token = _accumulator_var.set(acc)
+    try:
+        def explode(**kw):
+            raise AssertionError("real tool executed during replay_tools")
+        tool = ToolAdapter(explode, name="search")
+        assert tool(q="x") == "recorded result"
+        assert acc.trace[0]["result"] == "recorded result"
+    finally:
+        _accumulator_var.reset(token)
+
+
+def test_tool_adapter_replay_wrong_name_raises():
+    from agentsnap.adapters.tool import ToolAdapter
+    trace = [{"step": 0, "type": "tool_call", "name": "search", "args": {}, "result": "r"}]
+    acc = TraceAccumulator(replay=ReplaySession(trace, replay_tools=True))
+    token = _accumulator_var.set(acc)
+    try:
+        tool = ToolAdapter(lambda **kw: "x", name="fetch")
+        with pytest.raises(ReplayError, match="expected 'search'"):
+            tool()
+    finally:
+        _accumulator_var.reset(token)

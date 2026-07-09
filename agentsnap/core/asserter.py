@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from agentsnap.core.diff import DiffConfig, LLMJudge, compute_diff
 from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
+from agentsnap.core.replay import ReplaySession, validate_replayable
 from agentsnap.core.snapshot import input_sha8, read_snapshot, write_last_run, write_snapshot
 from agentsnap.exceptions import AgentRegressionError, SnapshotNotFoundError
 
@@ -29,7 +30,11 @@ class AgentAsserter:
         judge: LLMJudge | None = None,
         scenario: str | None = None,
         structural_tolerance: int = 0,
+        mode: str = "live",
+        replay_tools: bool = False,
     ) -> None:
+        if mode not in ("live", "replay"):
+            raise ValueError(f"mode must be 'live' or 'replay', got {mode!r}")
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
@@ -39,10 +44,14 @@ class AgentAsserter:
         self.judge = judge
         self.scenario = scenario
         self.structural_tolerance = structural_tolerance
+        self.mode = mode
+        self.replay_tools = replay_tools
         self.output: str = ""
         self.input: Any = None
         self._accumulator: TraceAccumulator | None = None
         self._token = None
+        self._replay_session: ReplaySession | None = None
+        self._replay_snapshot: dict | None = None
 
     def _resolved_scenario(self) -> str | None:
         if self.scenario is not None:
@@ -52,7 +61,16 @@ class AgentAsserter:
         return None
 
     def __enter__(self) -> "AgentAsserter":
-        self._accumulator = TraceAccumulator(model="unknown")
+        if self.mode == "replay":
+            try:
+                snap = read_snapshot(self.test_name, self.snapshot_dir, scenario=self.scenario)
+                validate_replayable(snap, self.test_name)
+                self._replay_snapshot = snap
+                self._replay_session = ReplaySession(snap["trace"], replay_tools=self.replay_tools)
+            except SnapshotNotFoundError:
+                # No golden yet: fall through to the live auto-record path in __exit__.
+                pass
+        self._accumulator = TraceAccumulator(model="unknown", replay=self._replay_session)
         self._token = _accumulator_var.set(self._accumulator)
         return self
 
@@ -65,12 +83,16 @@ class AgentAsserter:
         new_trace = self._accumulator.trace
         scenario = self._resolved_scenario()
 
-        try:
-            snapshot = read_snapshot(self.test_name, self.snapshot_dir, scenario=scenario)
+        if self._replay_snapshot is not None:
+            snapshot = self._replay_snapshot
             record_mode = False
-        except SnapshotNotFoundError:
-            snapshot = {}
-            record_mode = True
+        else:
+            try:
+                snapshot = read_snapshot(self.test_name, self.snapshot_dir, scenario=scenario)
+                record_mode = False
+            except SnapshotNotFoundError:
+                snapshot = {}
+                record_mode = True
 
         if record_mode:
             print(f"\n  [agentsnap] no snapshot for '{self.test_name}' - recording golden run")
@@ -112,6 +134,7 @@ class AgentAsserter:
             ignored_fields=self.ignored_fields,
             judge=self.judge,
             structural_tolerance=self.structural_tolerance,
+            compare_llm_requests=self._replay_session is not None,
         )
         report = compute_diff(
             snapshot,

@@ -11,7 +11,10 @@ def dump_raw(response) -> dict | None:
     try:
         return dump(mode="json")
     except TypeError:
-        return dump()
+        try:
+            return dump()
+        except Exception:
+            return None
     except Exception:
         return None
 

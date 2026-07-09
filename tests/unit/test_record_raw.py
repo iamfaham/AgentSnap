@@ -18,6 +18,20 @@ def test_dump_raw_returns_none_without_model_dump():
     assert dump_raw(Bare()) is None
 
 
+def test_dump_raw_returns_none_when_model_dump_raises():
+    class Bad:
+        def model_dump(self, mode="python"):
+            raise RuntimeError("boom")
+    assert dump_raw(Bad()) is None
+
+
+def test_dump_raw_returns_none_when_fallback_raises():
+    class Bad:
+        def model_dump(self):  # no mode kwarg -> TypeError, then fallback raises
+            raise RuntimeError("boom")
+    assert dump_raw(Bad()) is None
+
+
 def test_recorder_captures_raw_response(tmp_path):
     client = AnthropicAdapter(MockAnthropicClient([MockAnthropicResponse("hi there")]))
     with AgentRecorder("raw_rec", snapshot_dir=str(tmp_path)) as rec:

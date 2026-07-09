@@ -1,5 +1,10 @@
 # agentsnap
 
+[![CI](https://github.com/iamfaham/AgentSnap/actions/workflows/ci.yml/badge.svg)](https://github.com/iamfaham/AgentSnap/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/agentsnap)](https://pypi.org/project/agentsnap/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/agentsnap/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Deterministic snapshot testing for AI agents.
 
 `agentsnap` records your agent's LLM and tool calls during a **golden run** and produces a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across three dimensions:
@@ -11,6 +16,33 @@ Deterministic snapshot testing for AI agents.
 | **Semantic** | LLM responses and final output | Cosine similarity via `all-MiniLM-L6-v2`, or an LLM judge for higher accuracy |
 
 If any dimension drifts beyond its threshold, `agentsnap` raises `AgentRegressionError` with a structured diff report.
+
+---
+
+## Why agentsnap
+
+Agents regress silently. A prompt tweak, a model swap, a tool wired to the wrong argument — nothing throws an exception, nothing fails CI, and you find out in production when the agent quietly starts giving worse answers.
+
+`agentsnap` gives you two modes for two different jobs:
+
+- **Replay, on every PR** — recorded responses are replayed instead of calling a real API. Deterministic, zero cost, catches code regressions (prompt edits, broken tool wiring, changed call counts).
+- **Live, nightly** — real API calls against the current model, catching drift that only shows up when the model itself changes.
+
+A prompt edit caught by replay mode, no API call required:
+
+```
+Agent regression in 'demo_replay'
+=================================
+
+[ARGS] llm_call[0].messages:
+  messages: [{'content': 'Answer concisely: What is Python?', ...}] ->
+            [{'role': 'user', 'content': 'You are a pirate. Answer: ...'}]
+
+[SEMANTIC] llm_call[0]: 100% PASS
+[SEMANTIC] output: 100% PASS
+
+Failed checks: ['llm_requests']
+```
 
 ---
 

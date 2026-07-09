@@ -216,8 +216,10 @@ def test_compute_diff_llm_threshold_separate():
 
 def test_compute_diff_llm_threshold_catches_drift():
     snapshot = _make_snapshot(output="hello world")
-    # identical output but orthogonal llm response → llm_threshold=0.9 catches it
-    report = compute_diff(snapshot, OLD_TRACE, "hello world",
+    # identical output but slightly different (non-identical) llm response so the
+    # exact-match short-circuit doesn't apply → orthogonal embed → llm_threshold=0.9 catches it
+    new_trace = [{**_LLM_STEP, "response": _LLM_STEP["response"] + "!"}, _TOOL_STEP]
+    report = compute_diff(snapshot, new_trace, "hello world",
                           config=DiffConfig(semantic_threshold=0.0, llm_threshold=0.9),
                           embed_fn=_orthogonal_embed)
     assert not report.passed
@@ -495,3 +497,80 @@ def test_error_str_shows_arg_changes():
     assert "search[0]" in s
     assert "old q" in s
     assert "new q" in s
+
+
+# ── Replay mode: llm request diffs + exact-match short-circuit ──────────────
+
+def test_semantic_scores_short_circuits_identical_text():
+    from agentsnap.core.diff import semantic_scores
+
+    def exploding_embed(texts):
+        raise AssertionError("embedding called for identical text")
+
+    trace = [{"type": "llm_call", "messages": [], "response": "same", "tokens": 1}]
+    scores, reasons = semantic_scores(trace, trace, "out", "out", embed_fn=exploding_embed)
+    assert scores["llm_call[0]"] == 1.0
+    assert scores["output"] == 1.0
+
+
+def test_llm_request_diffs_detects_changed_messages():
+    from agentsnap.core.diff import llm_request_diffs
+
+    old = [{"type": "llm_call", "messages": [{"role": "user", "content": "original prompt"}], "response": "r"}]
+    new = [{"type": "llm_call", "messages": [{"role": "user", "content": "edited prompt"}], "response": "r"}]
+    diffs = llm_request_diffs(old, new)
+    assert "llm_call[0].messages" in diffs
+
+
+def test_llm_request_diffs_detects_count_mismatch():
+    from agentsnap.core.diff import llm_request_diffs
+
+    old = [{"type": "llm_call", "messages": [], "response": "r"}] * 2
+    new = [{"type": "llm_call", "messages": [], "response": "r"}]
+    diffs = llm_request_diffs(old, new)
+    assert "llm_call_count" in diffs
+    assert "2" in diffs["llm_call_count"] and "1" in diffs["llm_call_count"]
+
+
+def test_llm_request_diffs_empty_when_identical():
+    from agentsnap.core.diff import llm_request_diffs
+
+    trace = [{"type": "llm_call", "messages": [{"role": "user", "content": "p"}], "response": "r"}]
+    assert llm_request_diffs(trace, trace) == {}
+
+
+def test_compute_diff_compare_llm_requests_fails_on_prompt_change():
+    from agentsnap.core.diff import DiffConfig, compute_diff
+
+    old_snapshot = {
+        "trace": [{"step": 0, "type": "llm_call",
+                   "messages": [{"role": "user", "content": "original"}],
+                   "response": "r", "tokens": 1}],
+        "output": "out",
+    }
+    new_trace = [{"step": 0, "type": "llm_call",
+                  "messages": [{"role": "user", "content": "edited"}],
+                  "response": "r", "tokens": 1}]
+    report = compute_diff(
+        old_snapshot, new_trace, "out",
+        config=DiffConfig(compare_llm_requests=True),
+    )
+    assert not report.passed
+    assert "llm_requests" in report.failed_checks
+    assert "llm_call[0].messages" in report.argument_diffs
+
+
+def test_compute_diff_compare_llm_requests_passes_when_identical():
+    from agentsnap.core.diff import DiffConfig, compute_diff
+
+    snapshot = {
+        "trace": [{"step": 0, "type": "llm_call",
+                   "messages": [{"role": "user", "content": "p"}],
+                   "response": "r", "tokens": 1}],
+        "output": "out",
+    }
+    report = compute_diff(
+        snapshot, list(snapshot["trace"]), "out",
+        config=DiffConfig(compare_llm_requests=True),
+    )
+    assert report.passed

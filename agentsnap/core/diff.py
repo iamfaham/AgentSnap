@@ -240,6 +240,7 @@ class DiffConfig:
     structural_threshold: float = 0.8  # judge threshold for structural check only
     ignored_fields: list[str] = field(default_factory=list)
     judge: "LLMJudge | None" = None
+    compare_llm_requests: bool = False  # replay mode: diff request messages
 
     def _resolved_llm_threshold(self) -> float:
         if self.llm_threshold is not None:
@@ -341,6 +342,29 @@ def argument_diffs(
     return diffs
 
 
+def llm_request_diffs(
+    old_trace: list[dict],
+    new_trace: list[dict],
+    ignored_fields: list[str] | None = None,
+) -> dict[str, Any]:
+    """Diff the request side of llm_calls (messages sent). Used in replay mode."""
+    ignored = set(ignored_fields or [])
+    old_llm = _llm_calls(old_trace)
+    new_llm = _llm_calls(new_trace)
+    diffs: dict[str, Any] = {}
+    if len(old_llm) != len(new_llm):
+        diffs["llm_call_count"] = (
+            f"snapshot has {len(old_llm)} llm_call(s), new run made {len(new_llm)}"
+        )
+    for i, (old, new) in enumerate(zip(old_llm, new_llm)):
+        old_msgs = {"messages": old.get("messages", [])}
+        new_msgs = {"messages": new.get("messages", [])}
+        diff = _deepdiff_args(old_msgs, new_msgs, ignored) or _plain_diff_args(old_msgs, new_msgs, ignored)
+        if diff:
+            diffs[f"llm_call[{i}].messages"] = diff
+    return diffs
+
+
 # ---------------------------------------------------------------------------
 # Semantic scoring — embedding cosine sim or LLM judge
 # ---------------------------------------------------------------------------
@@ -368,8 +392,14 @@ def semantic_scores(
             key = f"llm_call[{i}]"
             old_resp = str(old.get("response", ""))
             new_resp = str(new.get("response", ""))
+            if old_resp == new_resp:
+                scores[key] = 1.0
+                continue
             scores[key] = judge.score(old_resp, new_resp, key=key)
-        scores["output"] = judge.score(old_output, new_output, key="output")
+        if old_output == new_output:
+            scores["output"] = 1.0
+        else:
+            scores["output"] = judge.score(old_output, new_output, key="output")
         reasons = judge.last_reasons()
     else:
         _embed_fn = embed_fn or _embed
@@ -378,10 +408,16 @@ def semantic_scores(
         for i, (old, new) in enumerate(zip(old_llm, new_llm)):
             old_resp = str(old.get("response", ""))
             new_resp = str(new.get("response", ""))
+            if old_resp == new_resp:
+                scores[f"llm_call[{i}]"] = 1.0
+                continue
             embs = _embed_fn([old_resp, new_resp])
             scores[f"llm_call[{i}]"] = _cosine_similarity(embs[0], embs[1])
-        embs = _embed_fn([old_output, new_output])
-        scores["output"] = _cosine_similarity(embs[0], embs[1])
+        if old_output == new_output:
+            scores["output"] = 1.0
+        else:
+            embs = _embed_fn([old_output, new_output])
+            scores["output"] = _cosine_similarity(embs[0], embs[1])
 
     return scores, reasons
 
@@ -436,6 +472,12 @@ def compute_diff(
         arg_diffs = argument_diffs(old_trace, new_trace, config.ignored_fields)
         if arg_diffs:
             failed.append("arguments")
+
+    if config.compare_llm_requests:
+        req_diffs = llm_request_diffs(old_trace, new_trace, config.ignored_fields)
+        if req_diffs:
+            arg_diffs.update(req_diffs)
+            failed.append("llm_requests")
 
     sem, reasons = semantic_scores(
         old_trace, new_trace, old_output, new_output,

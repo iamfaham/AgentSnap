@@ -127,6 +127,13 @@ def test_semantic_drift_above_threshold_fails(tmp_path):
         tool = ToolAdapter(_search_fn, name="search")
         rec.output = SimpleToolAgent(client, tool, "hello")
 
+    # Output text differs by one character from the recorded run (via a tool fn
+    # that appends "!") so it is not byte-identical — this keeps the exact-match
+    # short-circuit in semantic_scores() from bypassing the orthogonal embed stub,
+    # which simulates semantic drift for this test.
+    def _search_fn_drifted(query: str) -> str:
+        return f"{_search_fn(query)}!"
+
     with pytest.raises(AgentRegressionError) as exc_info:
         with AgentAsserter(
             name,
@@ -135,7 +142,7 @@ def test_semantic_drift_above_threshold_fails(tmp_path):
             embed_fn=_orthogonal_embed,
         ) as asserter:
             client2 = AnthropicAdapter(_simple_client())
-            tool2 = ToolAdapter(_search_fn, name="search")
+            tool2 = ToolAdapter(_search_fn_drifted, name="search")
             asserter.output = SimpleToolAgent(client2, tool2, "hello")
 
     failed = exc_info.value.diff_report.failed_checks

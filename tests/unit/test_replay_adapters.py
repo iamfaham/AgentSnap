@@ -1,6 +1,7 @@
 import pytest
 
 from agentsnap.adapters.anthropic import AnthropicAdapter, reconstruct as reconstruct_anthropic
+from agentsnap.adapters.openai import OpenAIAdapter
 from agentsnap.core.recorder import TraceAccumulator, _accumulator_var
 from agentsnap.core.replay import ReplaySession
 from agentsnap.exceptions import ReplayError
@@ -12,6 +13,11 @@ RAW = MockAnthropicResponse("recorded answer").model_dump()
 GOLDEN_TRACE = [
     {"step": 0, "type": "llm_call", "messages": [{"role": "user", "content": "q"}],
      "response": "recorded answer", "tokens": 30, "raw_response": RAW},
+]
+
+CORRUPT_TRACE = [
+    {"step": 0, "type": "llm_call", "messages": [{"role": "user", "content": "q"}],
+     "response": "recorded answer", "tokens": 30, "raw_response": {"nonsense": True}},
 ]
 
 
@@ -116,5 +122,38 @@ def test_tool_adapter_replay_wrong_name_raises():
         tool = ToolAdapter(lambda **kw: "x", name="fetch")
         with pytest.raises(ReplayError, match="expected 'search'"):
             tool()
+    finally:
+        _accumulator_var.reset(token)
+
+
+def test_anthropic_adapter_replay_corrupt_raw_response_raises_clear_replay_error():
+    acc, token = _with_replay_acc(CORRUPT_TRACE)
+    try:
+        client = AnthropicAdapter(ExplodingClient())
+        with pytest.raises(ReplayError, match="reconstruct") as exc_info:
+            client.messages.create(model="m", messages=[{"role": "user", "content": "q"}], max_tokens=10)
+        assert "agentsnap-record" in str(exc_info.value)
+    finally:
+        _accumulator_var.reset(token)
+
+
+def test_openai_adapter_replay_corrupt_raw_response_raises_clear_replay_error():
+    class ExplodingCompletions:
+        def create(self, **kwargs):
+            raise AssertionError("live API called during replay")
+
+    class ExplodingChat:
+        completions = ExplodingCompletions()
+
+    class ExplodingOpenAIClient:
+        chat = ExplodingChat()
+
+    acc = TraceAccumulator(model="unknown", replay=ReplaySession(CORRUPT_TRACE))
+    token = _accumulator_var.set(acc)
+    try:
+        client = OpenAIAdapter(ExplodingOpenAIClient())
+        with pytest.raises(ReplayError, match="reconstruct") as exc_info:
+            client.chat.completions.create(model="m", messages=[{"role": "user", "content": "q"}])
+        assert "agentsnap-record" in str(exc_info.value)
     finally:
         _accumulator_var.reset(token)

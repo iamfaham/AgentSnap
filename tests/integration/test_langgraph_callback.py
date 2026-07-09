@@ -7,6 +7,8 @@ from agentsnap.adapters.anthropic import AnthropicAdapter
 from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.recorder import AgentRecorder, TraceAccumulator, _accumulator_var
 from agentsnap.core.asserter import AgentAsserter
+from agentsnap.core.replay import ReplaySession
+from agentsnap.exceptions import ReplayError
 from tests.fixtures.mock_agents import MockAnthropicClient, MockAnthropicResponse
 
 import numpy as np
@@ -281,3 +283,43 @@ def test_async_context_manager_with_recorder(tmp_path):
     import json
     snap = json.loads((tmp_path / "snaps_actx" / "lg_async_ctx.json").read_text())
     assert snap["output"].startswith("Final:")
+
+
+# ── replay guard on stream/astream ────────────────────────────────────────────
+
+class _StreamExplodesGraph:
+    """A graph-like object whose stream/astream must never be called in replay mode."""
+
+    def stream(self, input_data, **kwargs):
+        raise AssertionError("live stream() called during replay")
+
+    async def astream(self, input_data, **kwargs):
+        raise AssertionError("live astream() called during replay")
+        yield  # pragma: no cover - make this an async generator
+
+
+def test_langgraph_adapter_stream_raises_replay_error_in_replay_mode():
+    acc = TraceAccumulator(replay=ReplaySession([]))
+    token = _accumulator_var.set(acc)
+    try:
+        graph = LangGraphAdapter(_StreamExplodesGraph())
+        with pytest.raises(ReplayError, match="LangGraph"):
+            graph.stream("hello")
+    finally:
+        _accumulator_var.reset(token)
+
+
+def test_langgraph_adapter_astream_raises_replay_error_in_replay_mode():
+    acc = TraceAccumulator(replay=ReplaySession([]))
+    token = _accumulator_var.set(acc)
+    try:
+        graph = LangGraphAdapter(_StreamExplodesGraph())
+
+        async def _run():
+            async for _ in graph.astream("hello"):
+                pass
+
+        with pytest.raises(ReplayError, match="LangGraph"):
+            asyncio.run(_run())
+    finally:
+        _accumulator_var.reset(token)

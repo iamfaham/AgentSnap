@@ -158,10 +158,24 @@ class LangGraphAdapter:
         return result
 
     async def astream(self, input_data, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is not None and acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support LangGraph; "
+                "use mode='live' for this test."
+            )
         async for chunk in self._graph.astream(input_data, **kwargs):
             yield chunk
 
     def stream(self, input_data, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is not None and acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support LangGraph; "
+                "use mode='live' for this test."
+            )
         return self._graph.stream(input_data, **kwargs)
 
     def __getattr__(self, name: str):

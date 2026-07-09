@@ -6,7 +6,7 @@ from agentsnap.core.diff import DiffConfig, LLMJudge, compute_diff
 from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
 from agentsnap.core.replay import ReplaySession, validate_replayable
 from agentsnap.core.snapshot import input_sha8, read_snapshot, write_last_run, write_snapshot
-from agentsnap.exceptions import AgentRegressionError, SnapshotNotFoundError
+from agentsnap.exceptions import AgentRegressionError, ReplayError, SnapshotNotFoundError
 
 
 class AgentAsserter:
@@ -90,6 +90,14 @@ class AgentAsserter:
             try:
                 snapshot = read_snapshot(self.test_name, self.snapshot_dir, scenario=scenario)
                 record_mode = False
+                if self.mode == "replay":
+                    raise ReplayError(
+                        f"Replay mode could not find the snapshot for '{self.test_name}' at "
+                        "context entry, so this run executed LIVE against real APIs. The "
+                        f"snapshot exists under scenario '{scenario}' (derived from input, "
+                        "which is only set inside the with-block). Pass scenario= explicitly "
+                        "to AgentAsserter/snapshot.run() when using replay with scenarios."
+                    )
             except SnapshotNotFoundError:
                 snapshot = {}
                 record_mode = True

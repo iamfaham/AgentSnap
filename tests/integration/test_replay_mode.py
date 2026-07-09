@@ -87,6 +87,33 @@ def test_invalid_mode_raises_value_error(tmp_path):
         AgentAsserter("x", snapshot_dir=str(tmp_path), mode="cassette")
 
 
+def test_replay_scenario_not_found_at_enter_raises_instead_of_running_live(tmp_path):
+    """Regression: if the scenario snapshot only exists at an input-derived path that
+    isn't known until inside the with-block, replay mode must not silently fall
+    through to a live run — it must raise ReplayError instead."""
+    input_data = {"query": "hello"}
+
+    # Record a golden that lands at an input-hash scenario path (no explicit scenario).
+    client = AnthropicAdapter(MockAnthropicClient([MockAnthropicResponse("the answer")]))
+    tool = ToolAdapter(lambda query: f"results for {query}", name="search")
+    with AgentRecorder("replay_scenario_it", snapshot_dir=str(tmp_path)) as rec:
+        rec.input_data = input_data
+        rec.output = SimpleToolAgent(client, tool, "hello")
+
+    # Sanity: the golden was written under an input-hash-suffixed filename, not the bare name.
+    from agentsnap.core.snapshot import input_sha8
+    scenario = input_sha8(input_data)
+    assert snapshot_path("replay_scenario_it", str(tmp_path), scenario=scenario).exists()
+    assert not snapshot_path("replay_scenario_it", str(tmp_path)).exists()
+
+    live_client = AnthropicAdapter(MockAnthropicClient([MockAnthropicResponse("the answer")]))
+    live_tool = ToolAdapter(lambda query: f"results for {query}", name="search")
+    with pytest.raises(ReplayError, match="scenario"):
+        with AgentAsserter("replay_scenario_it", snapshot_dir=str(tmp_path), mode="replay") as a:
+            a.input = input_data
+            a.output = SimpleToolAgent(live_client, live_tool, "hello")
+
+
 def test_replay_tools_stubs_tool_results(tmp_path):
     _record_golden(tmp_path)
 

@@ -4,11 +4,11 @@ import warnings
 
 from agentsnap.adapters.anthropic import (
     dump_raw as _anthropic_dump_raw,
-    reconstruct as _anthropic_reconstruct,
+    reconstruct_event as _anthropic_reconstruct_event,
 )
 from agentsnap.adapters.openai import (
     dump_raw as _openai_dump_raw,
-    reconstruct as _openai_reconstruct,
+    reconstruct_event as _openai_reconstruct_event,
 )
 from agentsnap.core.recorder import TraceAccumulator
 
@@ -47,7 +47,7 @@ def _apply_anthropic() -> list[tuple]:
                     "raw_response": event.get("raw_response"),
                 }
             )
-            return _anthropic_reconstruct(event["raw_response"])
+            return _anthropic_reconstruct_event(event)
 
         response = original(self, *args, **kwargs)
         text = ""
@@ -100,7 +100,7 @@ def _apply_openai() -> list[tuple]:
                     "raw_response": event.get("raw_response"),
                 }
             )
-            return _openai_reconstruct(event["raw_response"])
+            return _openai_reconstruct_event(event)
 
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)

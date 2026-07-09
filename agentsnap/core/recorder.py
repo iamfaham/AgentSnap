@@ -14,8 +14,9 @@ _accumulator_var: ContextVar["TraceAccumulator | None"] = ContextVar(
 
 
 class TraceAccumulator:
-    def __init__(self, model: str = "unknown") -> None:
+    def __init__(self, model: str = "unknown", replay=None) -> None:
         self.model = model
+        self.replay = replay  # ReplaySession | None — set for replay-mode asserts
         self._trace: list[dict] = []
         self._step = 0
         self._lock = threading.Lock()

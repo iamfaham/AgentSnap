@@ -91,6 +91,12 @@ class LangGraphAdapter:
         acc = TraceAccumulator.current()
         if acc is None:
             return self._graph.invoke(input_data, **kwargs)
+        if acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support LangGraph; "
+                "use mode='live' for this test."
+            )
 
         # Inject AgentSnapCallback via config so node-level events are captured.
         # AgentSnapCallback is always usable via duck-typing even without langchain_core.
@@ -123,6 +129,12 @@ class LangGraphAdapter:
         acc = TraceAccumulator.current()
         if acc is None:
             return await self._graph.ainvoke(input_data, **kwargs)
+        if acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support LangGraph; "
+                "use mode='live' for this test."
+            )
 
         # Pin the accumulator explicitly rather than relying on ContextVar lookup
         # at callback time. Async callback managers may dispatch sync callbacks via

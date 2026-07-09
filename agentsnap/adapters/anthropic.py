@@ -16,6 +16,13 @@ def dump_raw(response) -> dict | None:
         return None
 
 
+def reconstruct(raw: dict):
+    """Rebuild an anthropic Message object from a recorded raw_response dict."""
+    from anthropic.types import Message
+
+    return Message.model_validate(raw)
+
+
 class _MessagesProxy:
     def __init__(self, original) -> None:
         self._original = original
@@ -26,6 +33,20 @@ class _MessagesProxy:
             return self._original.create(**kwargs)
 
         messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            acc.push(
+                {
+                    "type": "llm_call",
+                    "messages": messages,
+                    "response": event.get("response", ""),
+                    "tokens": event.get("tokens", 0),
+                    "raw_response": event.get("raw_response"),
+                }
+            )
+            return reconstruct(event["raw_response"])
+
         response = self._original.create(**kwargs)
 
         response_text = ""

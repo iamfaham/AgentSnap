@@ -16,6 +16,13 @@ def dump_raw(response) -> dict | None:
         return None
 
 
+def reconstruct(raw: dict):
+    """Rebuild an openai ChatCompletion object from a recorded raw_response dict."""
+    from openai.types.chat import ChatCompletion
+
+    return ChatCompletion.model_validate(raw)
+
+
 class _CompletionsProxy:
     def __init__(self, original) -> None:
         self._original = original
@@ -26,6 +33,20 @@ class _CompletionsProxy:
             return self._original.create(**kwargs)
 
         messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            acc.push(
+                {
+                    "type": "llm_call",
+                    "messages": messages,
+                    "response": event.get("response", ""),
+                    "tokens": event.get("tokens", 0),
+                    "raw_response": event.get("raw_response"),
+                }
+            )
+            return reconstruct(event["raw_response"])
+
         # Force non-streaming so we always get a complete ChatCompletion object.
         # Streaming responses expose deltas, not the full message content.
         kwargs["stream"] = False

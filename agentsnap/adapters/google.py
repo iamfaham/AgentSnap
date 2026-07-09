@@ -11,6 +11,12 @@ class _ModelsProxy:
         acc = TraceAccumulator.current()
         if acc is None:
             return self._original.generate_content(model=model, contents=contents, **kwargs)
+        if acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support Gemini; "
+                "use mode='live' for this test."
+            )
 
         if isinstance(contents, str):
             messages = [{"role": "user", "content": contents}]

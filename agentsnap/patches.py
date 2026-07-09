@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import warnings
 
-from agentsnap.adapters.anthropic import dump_raw as _anthropic_dump_raw
-from agentsnap.adapters.openai import dump_raw as _openai_dump_raw
+from agentsnap.adapters.anthropic import (
+    dump_raw as _anthropic_dump_raw,
+    reconstruct as _anthropic_reconstruct,
+)
+from agentsnap.adapters.openai import (
+    dump_raw as _openai_dump_raw,
+    reconstruct as _openai_reconstruct,
+)
 from agentsnap.core.recorder import TraceAccumulator
 
 
@@ -29,6 +35,20 @@ def _apply_anthropic() -> list[tuple]:
         if acc is None:
             return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            acc.push(
+                {
+                    "type": "llm_call",
+                    "messages": messages,
+                    "response": event.get("response", ""),
+                    "tokens": event.get("tokens", 0),
+                    "raw_response": event.get("raw_response"),
+                }
+            )
+            return _anthropic_reconstruct(event["raw_response"])
+
         response = original(self, *args, **kwargs)
         text = ""
         tokens = 0
@@ -68,6 +88,20 @@ def _apply_openai() -> list[tuple]:
         if acc is None:
             return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            acc.push(
+                {
+                    "type": "llm_call",
+                    "messages": messages,
+                    "response": event.get("response", ""),
+                    "tokens": event.get("tokens", 0),
+                    "raw_response": event.get("raw_response"),
+                }
+            )
+            return _openai_reconstruct(event["raw_response"])
+
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)
         text = ""
@@ -102,6 +136,12 @@ def _apply_gemini() -> list[tuple]:
         acc = TraceAccumulator.current()
         if acc is None:
             return original(self, model=model, contents=contents, **kwargs)
+        if acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support Gemini; "
+                "use mode='live' for this test."
+            )
         if isinstance(contents, str):
             messages = [{"role": "user", "content": contents}]
         elif isinstance(contents, list):
@@ -138,6 +178,12 @@ def _apply_cohere() -> list[tuple]:
         acc = TraceAccumulator.current()
         if acc is None:
             return original(self, *args, **kwargs)
+        if acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support Cohere; "
+                "use mode='live' for this test."
+            )
         messages = kwargs.get("messages", [])
         response = original(self, *args, **kwargs)
         text = ""
@@ -182,6 +228,12 @@ def _apply_mistral() -> list[tuple]:
         acc = TraceAccumulator.current()
         if acc is None:
             return original(self, *args, **kwargs)
+        if acc.replay is not None:
+            from agentsnap.exceptions import ReplayError
+            raise ReplayError(
+                "replay mode does not yet support Mistral; "
+                "use mode='live' for this test."
+            )
         messages = kwargs.get("messages", [])
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)

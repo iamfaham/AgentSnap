@@ -207,7 +207,6 @@ def init_cmd() -> None:
         _download_model,
         apply_result,
         run_wizard,
-        test_judge_connection,
     )
 
     result = run_wizard()

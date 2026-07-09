@@ -22,7 +22,7 @@ Supported types (detected by class name, no hard SDK dependency):
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from agentsnap.adapters.tool import ToolAdapter
 

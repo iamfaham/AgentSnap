@@ -41,6 +41,9 @@ all-providers = [
 dev = [
     "pytest-cov",
     "ruff",
+    "anthropic>=0.25",
+    "langgraph",
+    "deepdiff>=6.0",
 ]
 
 [project.scripts]

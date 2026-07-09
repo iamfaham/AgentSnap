@@ -23,6 +23,22 @@ class MockAnthropicResponse:
         self.model = model
         self.usage = MockUsage()
 
+    def model_dump(self, mode: str = "python") -> dict:
+        """Anthropic-Message-shaped dict so recorded snapshots are replayable."""
+        return {
+            "id": "msg_mock",
+            "type": "message",
+            "role": "assistant",
+            "model": self.model,
+            "content": [{"type": "text", "text": block.text} for block in self.content],
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {
+                "input_tokens": self.usage.input_tokens,
+                "output_tokens": self.usage.output_tokens,
+            },
+        }
+
 
 class MockMessages:
     """Simulates client.messages with a pre-configured sequence of responses."""

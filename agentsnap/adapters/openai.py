@@ -3,6 +3,19 @@ from __future__ import annotations
 from agentsnap.core.recorder import TraceAccumulator
 
 
+def dump_raw(response) -> dict | None:
+    """Serialize a provider response for replay. None if the object can't dump."""
+    dump = getattr(response, "model_dump", None)
+    if dump is None:
+        return None
+    try:
+        return dump(mode="json")
+    except TypeError:
+        return dump()
+    except Exception:
+        return None
+
+
 class _CompletionsProxy:
     def __init__(self, original) -> None:
         self._original = original
@@ -32,6 +45,7 @@ class _CompletionsProxy:
                 "messages": messages,
                 "response": response_text,
                 "tokens": tokens,
+                "raw_response": dump_raw(response),
             }
         )
         return response

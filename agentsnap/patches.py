@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import warnings
 
+from agentsnap.adapters.anthropic import dump_raw as _anthropic_dump_raw
+from agentsnap.adapters.openai import dump_raw as _openai_dump_raw
 from agentsnap.core.recorder import TraceAccumulator
 
 
@@ -39,7 +41,15 @@ def _apply_anthropic() -> list[tuple]:
                 getattr(response.usage, "input_tokens", 0)
                 + getattr(response.usage, "output_tokens", 0)
             )
-        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": text,
+                "tokens": tokens,
+                "raw_response": _anthropic_dump_raw(response),
+            }
+        )
         return response
 
     Messages.create = _interceptor
@@ -66,7 +76,15 @@ def _apply_openai() -> list[tuple]:
             text = response.choices[0].message.content or ""
         if hasattr(response, "usage"):
             tokens = getattr(response.usage, "total_tokens", 0)
-        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": text,
+                "tokens": tokens,
+                "raw_response": _openai_dump_raw(response),
+            }
+        )
         return response
 
     Completions.create = _interceptor

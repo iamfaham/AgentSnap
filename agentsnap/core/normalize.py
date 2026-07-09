@@ -6,6 +6,7 @@ DEFAULT_VOLATILE_FIELDS: frozenset[str] = frozenset({
     "timestamp",
     "request_id",
     "latency_ms",
+    "raw_response",
 })
 
 

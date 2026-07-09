@@ -39,3 +39,10 @@ def test_custom_ignore_fields():
 def test_empty_ignore_set_is_identity():
     event = {"type": "llm_call", "response": "hi", "tokens": 3}
     assert normalize_event(event, set()) == event
+
+
+def test_raw_response_is_volatile():
+    from agentsnap.core.normalize import DEFAULT_VOLATILE_FIELDS, normalize_event
+    assert "raw_response" in DEFAULT_VOLATILE_FIELDS
+    event = {"type": "llm_call", "response": "x", "raw_response": {"id": "1"}}
+    assert "raw_response" not in normalize_event(event, DEFAULT_VOLATILE_FIELDS)

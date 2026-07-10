@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] - 2026-07-10
+
+### Added
+
+- Passing/failing/recorded snapshot results now surface in an `agentsnap snapshots` section of the pytest terminal summary, so `print()`-based feedback isn't swallowed by pytest's output capture.
+- `agentsnap init` wizard now offers to install the offline embedding backend (`sentence-transformers`) during setup.
+
+### Changed
+
+- Snapshots and last-run files omit the `input` key entirely when no input was set, instead of writing a noisy `"input": null`.
+
 ## [0.2.0] - 2026-07-10
 
 ### Added

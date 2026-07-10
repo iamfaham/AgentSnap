@@ -32,6 +32,7 @@ class AgentAsserter:
         structural_tolerance: int = 0,
         mode: str = "live",
         replay_tools: bool = False,
+        result_sink: list | None = None,
     ) -> None:
         if mode not in ("live", "replay"):
             raise ValueError(f"mode must be 'live' or 'replay', got {mode!r}")
@@ -46,6 +47,7 @@ class AgentAsserter:
         self.structural_tolerance = structural_tolerance
         self.mode = mode
         self.replay_tools = replay_tools
+        self.result_sink = result_sink
         self.output: str = ""
         self.input: Any = None
         self._accumulator: TraceAccumulator | None = None
@@ -114,6 +116,13 @@ class AgentAsserter:
                 self.output,
                 scenario=scenario,
             )
+            if self.result_sink is not None:
+                self.result_sink.append({
+                    "test_name": self.test_name,
+                    "mode": self.mode,
+                    "passed": None,
+                    "summary": "recorded golden run",
+                })
             return False
 
         # Input binding warning
@@ -171,6 +180,13 @@ class AgentAsserter:
         )
 
         if not report.passed:
+            if self.result_sink is not None:
+                self.result_sink.append({
+                    "test_name": self.test_name,
+                    "mode": self.mode,
+                    "passed": False,
+                    "summary": ", ".join(report.failed_checks),
+                })
             raise AgentRegressionError(
                 self.test_name,
                 report,
@@ -183,7 +199,15 @@ class AgentAsserter:
         parts = ["structural: ok"] if not report.structural_diff else ["structural: mismatch"]
         for step, score in scores.items():
             parts.append(f"{step}: {int(score * 100)}%")
-        print(f"  [agentsnap] '{self.test_name}' PASSED | {' | '.join(parts)}")
+        summary = " | ".join(parts)
+        if self.result_sink is not None:
+            self.result_sink.append({
+                "test_name": self.test_name,
+                "mode": self.mode,
+                "passed": True,
+                "summary": summary,
+            })
+        print(f"  [agentsnap] '{self.test_name}' PASSED | {summary}")
         return False
 
     async def __aenter__(self) -> "AgentAsserter":

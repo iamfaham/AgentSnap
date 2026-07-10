@@ -66,6 +66,25 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config._agentsnap_results = []
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config) -> None:
+    results = getattr(config, "_agentsnap_results", None)
+    if not results:
+        return
+    terminalreporter.section("agentsnap snapshots")
+    for r in results:
+        if r["passed"] is True:
+            line = f"PASSED   {r['test_name']} ({r['mode']}) {r['summary']}"
+        elif r["passed"] is False:
+            line = f"FAILED   {r['test_name']} ({r['mode']}) {r['summary']}"
+        else:
+            line = f"RECORDED {r['test_name']} {r['summary']}"
+        terminalreporter.line(line)
+
+
 def _ini(request: pytest.FixtureRequest, key: str, fallback: Any) -> Any:
     try:
         val = request.config.getini(key)
@@ -89,11 +108,19 @@ def _find_snapshot_dir(request: pytest.FixtureRequest) -> str:
 class _AutoContext:
     """Returned by snapshot.run(). Records on first call, asserts on subsequent calls."""
 
-    def __init__(self, test_name: str, recorder: AgentRecorder, asserter: AgentAsserter, is_record: bool) -> None:
+    def __init__(
+        self,
+        test_name: str,
+        recorder: AgentRecorder,
+        asserter: AgentAsserter,
+        is_record: bool,
+        result_sink: list | None = None,
+    ) -> None:
         self._test_name = test_name
         self._recorder = recorder
         self._asserter = asserter
         self._is_record = is_record
+        self._result_sink = result_sink
         self._ctx = None
 
     def __enter__(self) -> _AutoContext:
@@ -106,7 +133,15 @@ class _AutoContext:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        return (self._recorder if self._is_record else self._asserter).__exit__(exc_type, exc_val, exc_tb)
+        result = (self._recorder if self._is_record else self._asserter).__exit__(exc_type, exc_val, exc_tb)
+        if self._is_record and exc_type is None and self._result_sink is not None:
+            self._result_sink.append({
+                "test_name": self._test_name,
+                "mode": "record",
+                "passed": None,
+                "summary": "recorded golden run",
+            })
+        return result
 
     @property
     def output(self) -> str:
@@ -152,6 +187,7 @@ class SnapshotFixture:
         force_record: bool = False,
         structural_tolerance: int = 0,
         mode: str = "live",
+        result_sink: list | None = None,
     ) -> None:
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
@@ -160,6 +196,7 @@ class SnapshotFixture:
         self.force_record = force_record
         self.structural_tolerance = structural_tolerance
         self.mode = mode
+        self.result_sink = result_sink
 
     def run(
         self,
@@ -188,7 +225,7 @@ class SnapshotFixture:
         asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields,
                                        judge, scenario=scenario, structural_tolerance=structural_tolerance,
                                        mode=mode, replay_tools=replay_tools)
-        return _AutoContext(test_name, recorder, asserter, is_record=is_record)
+        return _AutoContext(test_name, recorder, asserter, is_record=is_record, result_sink=self.result_sink)
 
     def record_agent(self, test_name: str, model: str = "unknown", scenario: str | None = None) -> AgentRecorder:
         """Explicit record mode."""
@@ -241,6 +278,7 @@ class SnapshotFixture:
             structural_tolerance=structural_tolerance if structural_tolerance is not None else self.structural_tolerance,
             mode=mode if mode is not None else self.mode,
             replay_tools=replay_tools,
+            result_sink=self.result_sink,
         )
 
 
@@ -312,6 +350,7 @@ def snapshot(request: pytest.FixtureRequest):
         force_record=force_record,
         structural_tolerance=structural_tolerance,
         mode=mode,
+        result_sink=getattr(request.config, "_agentsnap_results", None),
     )
 
     if instrument:

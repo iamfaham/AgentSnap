@@ -7,6 +7,7 @@ from agentsnap.adapters.anthropic import (
     reconstruct_event as _anthropic_reconstruct_event,
 )
 from agentsnap.adapters.openai import (
+    OpenAIRecordingStream,
     dump_raw as _openai_dump_raw,
     reconstruct_event as _openai_reconstruct_event,
 )
@@ -101,6 +102,10 @@ def _apply_openai() -> list[tuple]:
                 }
             )
             return _openai_reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = original(self, *args, **kwargs)
+            return OpenAIRecordingStream(response, messages, acc)
 
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)

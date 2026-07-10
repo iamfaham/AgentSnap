@@ -43,6 +43,67 @@ def reconstruct_event(event: dict):
         ) from e
 
 
+class OpenAIRecordingStream:
+    """Tees a streaming response: yields chunks unchanged, records the assembled call."""
+
+    def __init__(self, inner, messages, acc) -> None:
+        self._inner = inner
+        self._messages = messages
+        self._acc = acc
+        self._chunks: list = []
+        self._text: list[str] = []
+        self._tokens = 0
+        self._recorded = False
+
+    def __iter__(self):
+        for chunk in self._inner:
+            self._capture(chunk)
+            yield chunk
+        self._record()
+
+    def _capture(self, chunk) -> None:
+        self._chunks.append(chunk)
+        if getattr(chunk, "choices", None):
+            delta = chunk.choices[0].delta
+            if getattr(delta, "content", None):
+                self._text.append(delta.content)
+        usage = getattr(chunk, "usage", None)
+        if usage is not None:
+            self._tokens = getattr(usage, "total_tokens", 0) or 0
+
+    def _record(self) -> None:
+        if self._recorded:
+            return
+        self._recorded = True
+        self._acc.push(
+            {
+                "type": "llm_call",
+                "messages": self._messages,
+                "response": "".join(self._text),
+                "tokens": self._tokens,
+                "raw_response": {
+                    "__stream__": True,
+                    "chunks": [dump_raw(c) for c in self._chunks],
+                },
+            }
+        )
+
+    def close(self) -> None:
+        try:
+            self._inner.close()
+        finally:
+            self._record()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 class _CompletionsProxy:
     def __init__(self, original) -> None:
         self._original = original
@@ -66,6 +127,10 @@ class _CompletionsProxy:
                 }
             )
             return reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = self._original.create(**kwargs)
+            return OpenAIRecordingStream(response, messages, acc)
 
         # Force non-streaming so we always get a complete ChatCompletion object.
         # Streaming responses expose deltas, not the full message content.

@@ -141,8 +141,9 @@ def test_openai_patcher_captures_llm_call():
     assert events[0]["tokens"] == 20
 
 
-def test_openai_patcher_forces_stream_false():
-    """OpenAI patcher must set stream=False to get a complete ChatCompletion."""
+def test_openai_patcher_forces_stream_false_when_caller_did_not_pass_stream():
+    """OpenAI patcher must set stream=False to get a complete ChatCompletion
+    when the caller did not explicitly ask for streaming."""
     captured_kwargs = {}
 
     def _spy_create(self, **kwargs):
@@ -158,12 +159,63 @@ def test_openai_patcher_forces_stream_false():
                     model="gpt-4o",
                     messages=[{"role": "user", "content": "hi"}],
                     max_tokens=5,
-                    stream=True,  # user asked for streaming
                 )
     finally:
         _accumulator_var.reset(token)
 
     assert captured_kwargs.get("stream") is False
+
+
+def test_openai_patcher_forwards_stream_true_and_tees():
+    """OpenAI patcher must forward stream=True unchanged and return a tee
+    that records the assembled response once consumed."""
+    from agentsnap.adapters.openai import OpenAIRecordingStream
+
+    class _OAIDelta:
+        def __init__(self, content):
+            self.content = content
+
+    class _OAIStreamChoice:
+        def __init__(self, content):
+            self.delta = _OAIDelta(content)
+
+    class _OAIChunk:
+        def __init__(self, content=None, tokens=None):
+            self.choices = [_OAIStreamChoice(content)]
+            self.usage = type("U", (), {"total_tokens": tokens})() if tokens is not None else None
+
+        def model_dump(self, mode="json"):
+            return {"content": self.choices[0].delta.content}
+
+    chunks = [_OAIChunk("streamed "), _OAIChunk("reply"), _OAIChunk(None, tokens=7)]
+    captured_kwargs = {}
+
+    def _spy_create(self, **kwargs):
+        captured_kwargs.update(kwargs)
+        return iter(chunks)
+
+    acc, token = _make_acc()
+    try:
+        with mock.patch.object(_OAICompletions, "create", _spy_create):
+            with PatchSet():
+                client = openai.OpenAI(api_key="test-key")
+                result = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=5,
+                    stream=True,  # user asked for streaming
+                )
+                assert isinstance(result, OpenAIRecordingStream)
+                list(result)
+    finally:
+        _accumulator_var.reset(token)
+
+    assert captured_kwargs.get("stream") is True
+    events = acc.trace
+    assert len(events) == 1
+    assert events[0]["response"] == "streamed reply"
+    assert events[0]["tokens"] == 7
+    assert events[0]["raw_response"]["__stream__"] is True
 
 
 # ── Graceful skip for uninstalled SDKs ───────────────────────────────────────

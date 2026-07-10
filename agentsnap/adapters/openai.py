@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 
 def dump_raw(response) -> dict | None:
@@ -28,8 +29,6 @@ def reconstruct(raw: dict):
 
 def reconstruct_event(event: dict):
     """Rebuild the recorded response for a replayed event, with a clear error on failure."""
-    from agentsnap.exceptions import ReplayError
-
     try:
         return reconstruct(event["raw_response"])
     except ReplayError:
@@ -46,8 +45,6 @@ def reconstruct_event(event: dict):
 def replay_stream(chunk_dicts):
     """Rebuild a recorded stream as a generator of real openai ChatCompletionChunk objects."""
     from openai.types.chat import ChatCompletionChunk
-
-    from agentsnap.exceptions import ReplayError
 
     chunks = []
     for i, raw in enumerate(chunk_dicts):
@@ -178,8 +175,6 @@ class _CompletionsProxy:
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
             if wants_stream != bool(is_stream_recording):
-                from agentsnap.exceptions import ReplayError
-
                 raise ReplayError(
                     f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
                     f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "

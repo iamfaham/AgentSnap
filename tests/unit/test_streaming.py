@@ -327,6 +327,24 @@ def test_anthropic_abandoned_iteration_still_records_partial():
     assert acc.trace[0]["tokens"] == 11
 
 
+def test_anthropic_cumulative_message_delta_usage_not_double_counted():
+    """output_tokens on message_delta is cumulative; only the last value should count."""
+    events = [
+        FakeAnthEvent("message_start", message=FakeAnthMessage(FakeAnthUsageStart(11))),
+        FakeAnthEvent("content_block_delta", delta=FakeAnthDelta("Hello, ")),
+        FakeAnthEvent("message_delta", usage=FakeAnthUsageDelta(5)),
+        FakeAnthEvent("content_block_delta", delta=FakeAnthDelta("world!")),
+        FakeAnthEvent("message_delta", usage=FakeAnthUsageDelta(9)),
+        FakeAnthEvent("message_stop"),
+    ]
+    acc = TraceAccumulator()
+    stream = AnthropicRecordingStream(
+        FakeAnthStream(events), [{"role": "user", "content": "hi"}], acc
+    )
+    list(stream)
+    assert acc.trace[0]["tokens"] == 20  # 11 input + 9 (latest cumulative output), not 25
+
+
 def test_anthropic_early_close_after_partial_consumption_records_partial_text_once():
     events = _anth_events()
     fake_stream = FakeAnthStream(events)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 
 def dump_raw(response) -> dict | None:
@@ -28,8 +29,6 @@ def reconstruct(raw: dict):
 
 def reconstruct_event(event: dict):
     """Rebuild the recorded response for a replayed event, with a clear error on failure."""
-    from agentsnap.exceptions import ReplayError
-
     try:
         return reconstruct(event["raw_response"])
     except ReplayError:
@@ -47,8 +46,6 @@ def replay_stream(chunk_dicts):
     """Rebuild a recorded stream as a generator of real anthropic stream event objects."""
     from anthropic.types import RawMessageStreamEvent
     from pydantic import TypeAdapter
-
-    from agentsnap.exceptions import ReplayError
 
     adapter = TypeAdapter(RawMessageStreamEvent)
 
@@ -94,7 +91,8 @@ class AnthropicRecordingStream:
         self._acc = acc
         self._chunks: list = []
         self._text: list[str] = []
-        self._tokens = 0
+        self._input_tokens = 0
+        self._output_tokens = 0
         self._recorded = False
 
     def __iter__(self):
@@ -123,11 +121,14 @@ class AnthropicRecordingStream:
         elif etype == "message_start":
             usage = getattr(getattr(event, "message", None), "usage", None)
             if usage is not None:
-                self._tokens += getattr(usage, "input_tokens", 0) or 0
+                self._input_tokens = getattr(usage, "input_tokens", 0) or 0
         elif etype == "message_delta":
             usage = getattr(event, "usage", None)
             if usage is not None:
-                self._tokens += getattr(usage, "output_tokens", 0) or 0
+                # Anthropic's message_delta.usage.output_tokens is cumulative
+                # across the stream, so the latest value replaces (not adds to)
+                # the running total rather than accumulating.
+                self._output_tokens = getattr(usage, "output_tokens", 0) or 0
 
     def _record(self) -> None:
         if self._recorded:
@@ -138,7 +139,7 @@ class AnthropicRecordingStream:
                 "type": "llm_call",
                 "messages": self._messages,
                 "response": "".join(self._text),
-                "tokens": self._tokens,
+                "tokens": self._input_tokens + self._output_tokens,
                 "raw_response": {
                     "__stream__": True,
                     "chunks": [dump_raw(c) for c in self._chunks],
@@ -188,8 +189,6 @@ class _MessagesProxy:
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
             if wants_stream != bool(is_stream_recording):
-                from agentsnap.exceptions import ReplayError
-
                 raise ReplayError(
                     f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
                     f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from agentsnap.exceptions import ReplayError, SnapshotFormatError
 
 
@@ -16,40 +18,44 @@ class ReplaySession:
         self._llm_cursor = 0
         self._tool_cursor = 0
         self.replay_tools = replay_tools
+        self._lock = threading.Lock()
 
     def next_llm_event(self) -> dict:
-        if self._llm_cursor >= len(self._llm_events):
-            raise ReplayError(
-                f"Agent made more LLM calls than the snapshot contains "
-                f"({len(self._llm_events)} recorded). Extra call #{self._llm_cursor + 1} "
-                "has no recorded response to replay. If this change is intentional, "
-                "re-record the golden: pytest --agentsnap-record"
-            )
-        event = self._llm_events[self._llm_cursor]
-        self._llm_cursor += 1
-        return event
+        with self._lock:
+            if self._llm_cursor >= len(self._llm_events):
+                raise ReplayError(
+                    f"Agent made more LLM calls than the snapshot contains "
+                    f"({len(self._llm_events)} recorded). Extra call #{self._llm_cursor + 1} "
+                    "has no recorded response to replay. If this change is intentional, "
+                    "re-record the golden: pytest --agentsnap-record"
+                )
+            event = self._llm_events[self._llm_cursor]
+            self._llm_cursor += 1
+            return event
 
     def next_tool_event(self, name: str) -> dict:
-        if self._tool_cursor >= len(self._tool_events):
-            raise ReplayError(
-                f"Agent made more tool calls than the snapshot contains "
-                f"({len(self._tool_events)} recorded). Extra call to '{name}' "
-                "has no recorded result to replay. If this change is intentional, "
-                "re-record the golden: pytest --agentsnap-record"
-            )
-        event = self._tool_events[self._tool_cursor]
-        self._tool_cursor += 1
-        recorded_name = event.get("name")
-        if recorded_name != name:
-            raise ReplayError(
-                f"Tool call order changed under replay: expected '{recorded_name}' "
-                f"at position {self._tool_cursor - 1}, got '{name}'."
-            )
-        return event
+        with self._lock:
+            if self._tool_cursor >= len(self._tool_events):
+                raise ReplayError(
+                    f"Agent made more tool calls than the snapshot contains "
+                    f"({len(self._tool_events)} recorded). Extra call to '{name}' "
+                    "has no recorded result to replay. If this change is intentional, "
+                    "re-record the golden: pytest --agentsnap-record"
+                )
+            event = self._tool_events[self._tool_cursor]
+            recorded_name = event.get("name")
+            if recorded_name != name:
+                raise ReplayError(
+                    f"Tool call order changed under replay: expected '{recorded_name}' "
+                    f"at position {self._tool_cursor}, got '{name}'."
+                )
+            self._tool_cursor += 1
+            return event
 
     @property
     def remaining_llm_calls(self) -> int:
-        return len(self._llm_events) - self._llm_cursor
+        with self._lock:
+            return len(self._llm_events) - self._llm_cursor
 
 
 def validate_replayable(snapshot: dict, test_name: str) -> None:

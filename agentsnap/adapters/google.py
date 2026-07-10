@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 
 class _ModelsProxy:
@@ -12,7 +13,6 @@ class _ModelsProxy:
         if acc is None:
             return self._original.generate_content(model=model, contents=contents, **kwargs)
         if acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support Gemini; "
                 "use mode='live' for this test."

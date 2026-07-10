@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 try:
     from langchain_core.callbacks import BaseCallbackHandler as _Base
@@ -92,7 +93,6 @@ class LangGraphAdapter:
         if acc is None:
             return self._graph.invoke(input_data, **kwargs)
         if acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support LangGraph; "
                 "use mode='live' for this test."
@@ -130,7 +130,6 @@ class LangGraphAdapter:
         if acc is None:
             return await self._graph.ainvoke(input_data, **kwargs)
         if acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support LangGraph; "
                 "use mode='live' for this test."
@@ -160,7 +159,6 @@ class LangGraphAdapter:
     async def astream(self, input_data, **kwargs):
         acc = TraceAccumulator.current()
         if acc is not None and acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support LangGraph; "
                 "use mode='live' for this test."
@@ -171,7 +169,6 @@ class LangGraphAdapter:
     def stream(self, input_data, **kwargs):
         acc = TraceAccumulator.current()
         if acc is not None and acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support LangGraph; "
                 "use mode='live' for this test."

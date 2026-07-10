@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from agentsnap.core.replay import ReplaySession, validate_replayable
@@ -41,6 +43,9 @@ def test_next_tool_event_wrong_name_raises():
     s = ReplaySession(TRACE)
     with pytest.raises(ReplayError, match="expected 'search'"):
         s.next_tool_event("fetch")
+    # The mismatched event must not be consumed: retrying with the correct
+    # name still returns it.
+    assert s.next_tool_event("search")["result"] == "found"
 
 
 def test_next_tool_event_exhausted_raises():
@@ -64,3 +69,39 @@ def test_validate_replayable_rejects_missing_raw_response():
 
 def test_validate_replayable_ignores_tool_calls():
     validate_replayable({"version": "1.1", "trace": [TRACE[1]]}, "t")
+
+
+def test_next_llm_event_thread_safe_under_concurrency():
+    trace = [
+        {"step": i, "type": "llm_call", "messages": [], "response": str(i),
+         "tokens": 1, "raw_response": {"id": str(i)}}
+        for i in range(100)
+    ]
+    s = ReplaySession(trace)
+
+    results: list[dict] = []
+    results_lock = threading.Lock()
+    errors: list[BaseException] = []
+
+    def worker():
+        while True:
+            try:
+                event = s.next_llm_event()
+            except ReplayError:
+                # Session exhausted: fire one extra pull to confirm it keeps raising.
+                with pytest.raises(ReplayError):
+                    s.next_llm_event()
+                return
+            with results_lock:
+                results.append(event)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    assert len(results) == 100
+    seen_ids = sorted(int(e["raw_response"]["id"]) for e in results)
+    assert seen_ids == list(range(100))

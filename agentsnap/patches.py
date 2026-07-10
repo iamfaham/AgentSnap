@@ -15,6 +15,7 @@ from agentsnap.adapters.openai import (
     replay_stream as _openai_replay_stream,
 )
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 
 # ── Safe apply helper ──────────────────────────────────────────────────────────
@@ -55,8 +56,6 @@ def _apply_anthropic() -> list[tuple]:
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
             if wants_stream != bool(is_stream_recording):
-                from agentsnap.exceptions import ReplayError
-
                 raise ReplayError(
                     f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
                     f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
@@ -126,8 +125,6 @@ def _apply_openai() -> list[tuple]:
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
             if wants_stream != bool(is_stream_recording):
-                from agentsnap.exceptions import ReplayError
-
                 raise ReplayError(
                     f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
                     f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
@@ -177,7 +174,6 @@ def _apply_gemini() -> list[tuple]:
         if acc is None:
             return original(self, model=model, contents=contents, **kwargs)
         if acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support Gemini; "
                 "use mode='live' for this test."
@@ -219,7 +215,6 @@ def _apply_cohere() -> list[tuple]:
         if acc is None:
             return original(self, *args, **kwargs)
         if acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support Cohere; "
                 "use mode='live' for this test."
@@ -269,7 +264,6 @@ def _apply_mistral() -> list[tuple]:
         if acc is None:
             return original(self, *args, **kwargs)
         if acc.replay is not None:
-            from agentsnap.exceptions import ReplayError
             raise ReplayError(
                 "replay mode does not yet support Mistral; "
                 "use mode='live' for this test."

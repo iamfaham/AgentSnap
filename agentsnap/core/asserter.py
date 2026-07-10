@@ -126,16 +126,6 @@ class AgentAsserter:
                 print(f"    current:  sha8={current_sha8}")
                 print("    Comparison may be against the wrong baseline. Delete the snapshot file and re-record.")
 
-        write_last_run(
-            self.test_name,
-            self.snapshot_dir,
-            self._accumulator.model,
-            snapshot.get("input"),
-            new_trace,
-            self.output,
-            scenario=scenario,
-        )
-
         config = DiffConfig(
             semantic_threshold=self.semantic_threshold,
             llm_threshold=self.llm_threshold,
@@ -144,13 +134,41 @@ class AgentAsserter:
             structural_tolerance=self.structural_tolerance,
             compare_llm_requests=self._replay_session is not None,
         )
-        report = compute_diff(
-            snapshot,
+        try:
+            report = compute_diff(
+                snapshot,
+                new_trace,
+                self.output,
+                config=config,
+                embed_fn=self.embed_fn,
+            )
+        except Exception:
+            write_last_run(
+                self.test_name,
+                self.snapshot_dir,
+                self._accumulator.model,
+                snapshot.get("input"),
+                new_trace,
+                self.output,
+                scenario=scenario,
+            )
+            raise
+
+        write_last_run(
+            self.test_name,
+            self.snapshot_dir,
+            self._accumulator.model,
+            snapshot.get("input"),
             new_trace,
             self.output,
-            config=config,
-            embed_fn=self.embed_fn,
+            scenario=scenario,
+            result={
+                "passed": report.passed,
+                "failed_checks": list(report.failed_checks),
+                "mode": self.mode,
+            },
         )
+
         if not report.passed:
             raise AgentRegressionError(
                 self.test_name,

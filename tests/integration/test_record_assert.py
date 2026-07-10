@@ -266,6 +266,87 @@ def test_last_run_written_on_assert(tmp_path):
     assert last_run_path(name, snapshot_dir).exists()
 
 
+def test_last_run_result_recorded_on_pass(tmp_path):
+    import json
+    from agentsnap.core.snapshot import last_run_path
+
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "last_run_pass"
+
+    with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        rec.output = SimpleToolAgent(client, tool, "q")
+
+    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_identical_embed) as asserter:
+        client2 = AnthropicAdapter(_simple_client())
+        tool2 = ToolAdapter(_search_fn, name="search")
+        asserter.output = SimpleToolAgent(client2, tool2, "q")
+
+    data = json.loads(last_run_path(name, snapshot_dir).read_text(encoding="utf-8"))
+    assert data["result"]["passed"] is True
+    assert data["result"]["mode"] == "live"
+
+
+def test_last_run_result_recorded_on_fail(tmp_path):
+    import json
+    from agentsnap.core.snapshot import last_run_path
+
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "last_run_fail"
+
+    with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        rec.output = SimpleToolAgent(client, tool, "hello")
+
+    def _search_fn_drifted(query: str) -> str:
+        return f"{_search_fn(query)}!"
+
+    with pytest.raises(AgentRegressionError):
+        with AgentAsserter(
+            name,
+            snapshot_dir=snapshot_dir,
+            semantic_threshold=0.92,
+            embed_fn=_orthogonal_embed,
+        ) as asserter:
+            client2 = AnthropicAdapter(_simple_client())
+            tool2 = ToolAdapter(_search_fn_drifted, name="search")
+            asserter.output = SimpleToolAgent(client2, tool2, "hello")
+
+    data = json.loads(last_run_path(name, snapshot_dir).read_text(encoding="utf-8"))
+    assert data["result"]["passed"] is False
+    assert len(data["result"]["failed_checks"]) > 0
+
+
+def test_last_run_no_result_key_on_comparison_crash(tmp_path):
+    import json
+    from agentsnap.core.snapshot import last_run_path
+
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "last_run_crash"
+
+    with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        rec.output = SimpleToolAgent(client, tool, "hello")
+
+    def _raising_embed(texts):
+        raise RuntimeError("embedding backend exploded")
+
+    def _search_fn_drifted(query: str) -> str:
+        return f"{_search_fn(query)}!"
+
+    with pytest.raises(RuntimeError):
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_raising_embed) as asserter:
+            client2 = AnthropicAdapter(_simple_client())
+            tool2 = ToolAdapter(_search_fn_drifted, name="search")
+            asserter.output = SimpleToolAgent(client2, tool2, "hello")
+
+    data = json.loads(last_run_path(name, snapshot_dir).read_text(encoding="utf-8"))
+    assert "result" not in data
+
+
 # ── Scenario / input-binding tests ────────────────────────────────────────────
 
 def test_recorder_explicit_scenario_namespaces_file(tmp_path):

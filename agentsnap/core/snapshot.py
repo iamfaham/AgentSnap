@@ -63,6 +63,7 @@ def write_last_run(
     trace: list[dict],
     output: str,
     scenario: str | None = None,
+    result: dict | None = None,
 ) -> Path:
     path = last_run_path(test_name, snapshot_dir, scenario=scenario)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +75,8 @@ def write_last_run(
         "trace": trace,
         "version": SNAPSHOT_VERSION,
     }
+    if result is not None:
+        data["result"] = result
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     return path
 

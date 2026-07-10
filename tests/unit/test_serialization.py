@@ -8,7 +8,7 @@ from pathlib import Path
 
 from agentsnap.core.snapshot import (
     input_sha8, last_run_path, list_snapshots,
-    read_snapshot, snapshot_path, write_snapshot,
+    read_snapshot, snapshot_path, write_last_run, write_snapshot,
 )
 from agentsnap.exceptions import SnapshotNotFoundError
 
@@ -168,3 +168,18 @@ def test_snapshot_version_is_1_1(tmp_path):
     assert SNAPSHOT_VERSION == "1.1"
     write_snapshot("v11", str(tmp_path), "m", None, [], "out")
     assert read_snapshot("v11", str(tmp_path))["version"] == "1.1"
+
+
+def test_write_last_run_without_result_omits_key(tmp_path):
+    snapshot_dir = str(tmp_path / "snaps")
+    path = write_last_run("t1", snapshot_dir, "m", {}, _TRACE, "out")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert "result" not in data
+
+
+def test_write_last_run_with_result_round_trips(tmp_path):
+    snapshot_dir = str(tmp_path / "snaps")
+    result = {"passed": False, "failed_checks": ["structural"], "mode": "live"}
+    path = write_last_run("t1", snapshot_dir, "m", {}, _TRACE, "out", result=result)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["result"] == result

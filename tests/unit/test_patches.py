@@ -106,6 +106,71 @@ def test_anthropic_patcher_captures_llm_call():
     assert events[0]["messages"] == [{"role": "user", "content": "hello"}]
 
 
+def test_anthropic_patcher_forwards_stream_true_and_tees():
+    """Anthropic patcher must forward stream=True unchanged and return a tee
+    that records the assembled response once consumed."""
+    from agentsnap.adapters.anthropic import AnthropicRecordingStream
+
+    class _AnthUsageStart:
+        input_tokens = 4
+
+    class _AnthMessageStart:
+        usage = _AnthUsageStart()
+
+    class _AnthDelta:
+        def __init__(self, text):
+            self.text = text
+
+    class _AnthUsageDelta:
+        output_tokens = 6
+
+    class _AnthEvent:
+        def __init__(self, type, message=None, delta=None, usage=None):
+            self.type = type
+            self.message = message
+            self.delta = delta
+            self.usage = usage
+
+        def model_dump(self, mode="json"):
+            return {"type": self.type}
+
+    events = [
+        _AnthEvent("message_start", message=_AnthMessageStart()),
+        _AnthEvent("content_block_delta", delta=_AnthDelta("streamed ")),
+        _AnthEvent("content_block_delta", delta=_AnthDelta("reply")),
+        _AnthEvent("message_delta", usage=_AnthUsageDelta()),
+        _AnthEvent("message_stop"),
+    ]
+    captured_kwargs = {}
+
+    def _spy_create(self, **kwargs):
+        captured_kwargs.update(kwargs)
+        return iter(events)
+
+    acc, token = _make_acc()
+    try:
+        with mock.patch.object(_AnthMessages, "create", _spy_create):
+            with PatchSet():
+                client = anthropic.Anthropic(api_key="test-key")
+                result = client.messages.create(
+                    model="claude-haiku-4-5",
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=10,
+                    stream=True,  # user asked for streaming
+                )
+                assert isinstance(result, AnthropicRecordingStream)
+                list(result)
+    finally:
+        _accumulator_var.reset(token)
+
+    assert captured_kwargs.get("stream") is True
+    events_trace = acc.trace
+    assert len(events_trace) == 1
+    assert events_trace[0]["response"] == "streamed reply"
+    assert events_trace[0]["tokens"] == 10
+    assert events_trace[0]["raw_response"]["__stream__"] is True
+
+
 def test_anthropic_patcher_noop_without_accumulator():
     """Patched method must be transparent when no TraceAccumulator is active."""
     assert TraceAccumulator.current() is None

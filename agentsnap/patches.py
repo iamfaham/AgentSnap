@@ -3,6 +3,7 @@ from __future__ import annotations
 import warnings
 
 from agentsnap.adapters.anthropic import (
+    AnthropicRecordingStream,
     dump_raw as _anthropic_dump_raw,
     reconstruct_event as _anthropic_reconstruct_event,
 )
@@ -49,6 +50,10 @@ def _apply_anthropic() -> list[tuple]:
                 }
             )
             return _anthropic_reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = original(self, *args, **kwargs)
+            return AnthropicRecordingStream(response, messages, acc)
 
         response = original(self, *args, **kwargs)
         text = ""

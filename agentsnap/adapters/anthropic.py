@@ -43,6 +43,74 @@ def reconstruct_event(event: dict):
         ) from e
 
 
+class AnthropicRecordingStream:
+    """Tees a streaming response: yields events unchanged, records the assembled call."""
+
+    def __init__(self, inner, messages, acc) -> None:
+        self._inner = inner
+        self._messages = messages
+        self._acc = acc
+        self._chunks: list = []
+        self._text: list[str] = []
+        self._tokens = 0
+        self._recorded = False
+
+    def __iter__(self):
+        for event in self._inner:
+            self._capture(event)
+            yield event
+        self._record()
+
+    def _capture(self, event) -> None:
+        self._chunks.append(event)
+        etype = getattr(event, "type", "")
+        if etype == "content_block_delta":
+            delta = getattr(event, "delta", None)
+            text = getattr(delta, "text", None)
+            if text:
+                self._text.append(text)
+        elif etype == "message_start":
+            usage = getattr(getattr(event, "message", None), "usage", None)
+            if usage is not None:
+                self._tokens += getattr(usage, "input_tokens", 0) or 0
+        elif etype == "message_delta":
+            usage = getattr(event, "usage", None)
+            if usage is not None:
+                self._tokens += getattr(usage, "output_tokens", 0) or 0
+
+    def _record(self) -> None:
+        if self._recorded:
+            return
+        self._recorded = True
+        self._acc.push(
+            {
+                "type": "llm_call",
+                "messages": self._messages,
+                "response": "".join(self._text),
+                "tokens": self._tokens,
+                "raw_response": {
+                    "__stream__": True,
+                    "chunks": [dump_raw(c) for c in self._chunks],
+                },
+            }
+        )
+
+    def close(self) -> None:
+        try:
+            self._inner.close()
+        finally:
+            self._record()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 class _MessagesProxy:
     def __init__(self, original) -> None:
         self._original = original
@@ -66,6 +134,10 @@ class _MessagesProxy:
                 }
             )
             return reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = self._original.create(**kwargs)
+            return AnthropicRecordingStream(response, messages, acc)
 
         response = self._original.create(**kwargs)
 

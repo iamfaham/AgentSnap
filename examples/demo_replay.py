@@ -30,14 +30,73 @@ from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
 from agentsnap.exceptions import AgentRegressionError
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "tests"))
-from fixtures.mock_agents import MockAnthropicClient, MockAnthropicResponse  # noqa: E402
-
 SEP = "=" * 70
 
 
 def header(title: str) -> None:
     print(f"\n{SEP}\n  {title}\n{SEP}")
+
+
+# ── A minimal mock Anthropic-shaped client (self-contained; no tests/ import) ──
+
+class MockTextBlock:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.type = "text"
+
+
+class MockUsage:
+    def __init__(self, input_tokens: int = 10, output_tokens: int = 20) -> None:
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class MockAnthropicResponse:
+    def __init__(self, text: str, model: str = "claude-mock") -> None:
+        self.content = [MockTextBlock(text)]
+        self.model = model
+        self.usage = MockUsage()
+
+    def model_dump(self, mode: str = "python") -> dict:
+        """Anthropic-Message-shaped dict so recorded snapshots are replayable."""
+        return {
+            "id": "msg_mock",
+            "type": "message",
+            "role": "assistant",
+            "model": self.model,
+            "content": [{"type": "text", "text": block.text} for block in self.content],
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {
+                "input_tokens": self.usage.input_tokens,
+                "output_tokens": self.usage.output_tokens,
+            },
+        }
+
+
+class MockMessages:
+    """Simulates client.messages with a pre-configured sequence of responses."""
+
+    def __init__(self, responses: list[MockAnthropicResponse]) -> None:
+        self._responses = list(responses)
+        self._index = 0
+
+    def create(self, **kwargs) -> MockAnthropicResponse:
+        if self._index >= len(self._responses):
+            raise ValueError(
+                f"MockMessages exhausted: got {self._index + 1} calls, "
+                f"only {len(self._responses)} responses configured."
+            )
+        resp = self._responses[self._index]
+        self._index += 1
+        return resp
+
+
+class MockAnthropicClient:
+    """Drop-in replacement for anthropic.Anthropic() with deterministic responses."""
+
+    def __init__(self, responses: list[MockAnthropicResponse]) -> None:
+        self.messages = MockMessages(responses)
 
 
 class NetworkDisabledMessages:

@@ -165,6 +165,12 @@ Notes:
   Other providers raise `ReplayError` — use live mode for those tests.
 - With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash
   is not available because the snapshot is read before the test body runs).
+- If the replayed final output isn't byte-identical to the golden, scoring it
+  needs a semantic backend — install the embeddings extra
+  (`pip install agentsnap[offline]`) or configure a judge
+  (`AGENTSNAP_JUDGE_API_KEY`).
+- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) aren't intercepted yet —
+  replay's no-network guarantee currently covers sync clients only.
 
 ### Streaming agents
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,8 +23,6 @@ def cli() -> None:
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 def record_cmd(test_file: str, snapshot_dir: str) -> None:
     """Run a test file and record agent traces as snapshots."""
-    import subprocess
-
     result = subprocess.run(
         [sys.executable, test_file, f"--snapshot-dir={snapshot_dir}", "--mode=record"]
     )
@@ -35,8 +34,6 @@ def record_cmd(test_file: str, snapshot_dir: str) -> None:
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 def run_cmd(test_file: str, snapshot_dir: str) -> None:
     """Run a test file and assert agent traces against snapshots."""
-    import subprocess
-
     result = subprocess.run(
         [sys.executable, test_file, f"--snapshot-dir={snapshot_dir}", "--mode=assert"]
     )
@@ -372,6 +369,21 @@ def init_cmd() -> None:
         click.echo(_write_example_test(project_dir))
 
     if result.backend == "offline":
+        if result.install_offline:
+            click.echo('\nInstalling offline embeddings backend (pip install "agentsnap[offline]")...')
+            proc = subprocess.run([sys.executable, "-m", "pip", "install", "agentsnap[offline]"])
+            if proc.returncode != 0:
+                click.echo(
+                    "  Install failed. Run manually: pip install agentsnap[offline]"
+                )
+            else:
+                click.echo("  Installed.")
+        elif not result.pre_download_model:
+            click.echo(
+                "\nModel will download on first test run (~22 MB)."
+                "\nNote: requires pip install agentsnap[offline] if not already installed."
+            )
+
         if result.pre_download_model:
             click.echo("\nDownloading all-MiniLM-L6-v2...")
             try:
@@ -379,11 +391,6 @@ def init_cmd() -> None:
                 click.echo("  Model cached.")
             except RuntimeError as exc:
                 click.echo(f"  {exc}")
-        else:
-            click.echo(
-                "\nModel will download on first test run (~22 MB)."
-                "\nNote: requires pip install agentsnap[offline] if not already installed."
-            )
         click.echo("\nOffline embeddings configured.")
     else:
         if result.save_key_to_env:

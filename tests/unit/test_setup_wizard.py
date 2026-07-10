@@ -69,12 +69,15 @@ def test_write_config_sets_string_and_float(tmp_path):
     assert '"gpt-4o"' in content      # string must be quoted
 
 
+from click.testing import CliRunner
+
 from agentsnap.setup_wizard import (
     PROVIDERS,
     WizardResult,
     _write_env_key,
     apply_result,
     check_offline_model,
+    run_wizard,
     test_judge_connection,
 )
 
@@ -89,6 +92,11 @@ def test_wizard_result_defaults():
     assert r.api_key_env_var is None
     assert r.save_key_to_env is False
     assert r.pre_download_model is False
+
+
+def test_wizard_result_offline_install_default_false():
+    r = WizardResult(backend="offline")
+    assert r.install_offline is False
 
 
 def test_wizard_result_judge():
@@ -235,6 +243,40 @@ def test_judge_connection_raises_on_api_error():
                 model="openai/gpt-4o-mini",
                 api_key="sk-bad",
             )
+
+
+# ── run_wizard — offline install prompt ───────────────────────────────────────
+
+def test_run_wizard_offline_not_installed_prompts_and_installs(monkeypatch):
+    """When sentence-transformers is not importable, wizard asks to install."""
+    monkeypatch.setattr("agentsnap.setup_wizard._offline_installed", lambda: False)
+    runner = CliRunner()
+    with runner.isolation(input="2\ny\ny\n"):  # [2] offline, [y] install, [y] pre-download
+        result = run_wizard()
+    assert result.backend == "offline"
+    assert result.install_offline is True
+    assert result.pre_download_model is True
+
+
+def test_run_wizard_offline_not_installed_declines_install(monkeypatch):
+    monkeypatch.setattr("agentsnap.setup_wizard._offline_installed", lambda: False)
+    runner = CliRunner()
+    with runner.isolation(input="2\nn\nn\n"):  # [2] offline, [n] install, [n] pre-download
+        result = run_wizard()
+    assert result.backend == "offline"
+    assert result.install_offline is False
+    assert result.pre_download_model is False
+
+
+def test_run_wizard_offline_already_installed_skips_prompt(monkeypatch):
+    """When already importable, no install prompt is shown; install_offline stays False."""
+    monkeypatch.setattr("agentsnap.setup_wizard._offline_installed", lambda: True)
+    runner = CliRunner()
+    with runner.isolation(input="2\ny\n"):  # [2] offline, [y] pre-download (no install prompt)
+        result = run_wizard()
+    assert result.backend == "offline"
+    assert result.install_offline is False
+    assert result.pre_download_model is True
 
 
 # ── check_offline_model ───────────────────────────────────────────────────────

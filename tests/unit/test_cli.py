@@ -151,6 +151,99 @@ def test_diff_graceful_error_when_no_backend_configured(tmp_path):
     assert "agentsnap init" in result.output
 
 
+def test_status_no_snapshots_mirrors_list_message(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(cli, ["status", f"--snapshot-dir={tmp_path}"])
+    assert result.exit_code == 0
+    assert "No snapshots found" in result.output
+
+
+def test_status_covers_every_state_and_exits_1_on_fail(tmp_path):
+    snap_dir = tmp_path
+    old_ts = "2026-01-01T00:00:00+00:00"
+    new_ts = "2026-01-02T00:00:00+00:00"
+
+    def golden(name, ts=old_ts):
+        return {**_SNAP, "recorded_at": ts}
+
+    # PASS: last_run newer than golden, result.passed True
+    _write(snap_dir / "passing_agent.json", golden("passing_agent"))
+    _write(
+        snap_dir / ".last_run" / "passing_agent.json",
+        {**_SNAP, "recorded_at": new_ts, "result": {"passed": True, "failed_checks": [], "mode": "live"}},
+    )
+
+    # FAIL: last_run newer than golden, result.passed False
+    _write(snap_dir / "failing_agent.json", golden("failing_agent"))
+    _write(
+        snap_dir / ".last_run" / "failing_agent.json",
+        {
+            **_SNAP,
+            "recorded_at": new_ts,
+            "result": {"passed": False, "failed_checks": ["semantic:output"], "mode": "replay"},
+        },
+    )
+
+    # no run: golden with no matching last_run file
+    _write(snap_dir / "no_run_agent.json", golden("no_run_agent"))
+
+    # approved (re-run tests): last_run older/equal to golden's recorded_at
+    _write(snap_dir / "stale_agent.json", golden("stale_agent", ts=new_ts))
+    _write(
+        snap_dir / ".last_run" / "stale_agent.json",
+        {**_SNAP, "recorded_at": old_ts, "result": {"passed": True, "failed_checks": [], "mode": "live"}},
+    )
+
+    # unknown (re-run tests): last_run newer, no result key
+    _write(snap_dir / "no_result_agent.json", golden("no_result_agent"))
+    _write(snap_dir / ".last_run" / "no_result_agent.json", {**_SNAP, "recorded_at": new_ts})
+
+    # orphan last_run with no matching golden
+    _write(
+        snap_dir / ".last_run" / "orphan_agent.json",
+        {**_SNAP, "recorded_at": new_ts, "result": {"passed": True, "failed_checks": [], "mode": "live"}},
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["status", f"--snapshot-dir={snap_dir}"])
+
+    assert result.exit_code == 1
+    assert "passing_agent" in result.output and "PASS" in result.output
+    assert "failing_agent" in result.output and "FAIL" in result.output
+    assert "semantic:output" in result.output
+    assert "no_run_agent" in result.output and "no run" in result.output
+    assert "stale_agent" in result.output and "approved (re-run tests)" in result.output
+    assert "no_result_agent" in result.output and "unknown (re-run tests)" in result.output
+    assert "orphan_agent" in result.output and "unapproved new run" in result.output
+    assert "Summary:" in result.output
+    assert "1 passed" in result.output
+    assert "1 failed" in result.output
+
+
+def test_status_exits_0_when_no_fail_present(tmp_path):
+    snap_dir = tmp_path
+    _write(snap_dir / "passing_agent.json", _SNAP)
+    _write(
+        snap_dir / ".last_run" / "passing_agent.json",
+        {**_SNAP, "recorded_at": "2026-02-01T00:00:00+00:00", "result": {"passed": True, "failed_checks": [], "mode": "live"}},
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["status", f"--snapshot-dir={snap_dir}"])
+    assert result.exit_code == 0
+
+
+def test_status_handles_unreadable_json_gracefully(tmp_path):
+    snap_dir = tmp_path
+    bad = snap_dir / "corrupt_agent.json"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_text("{not valid json", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["status", f"--snapshot-dir={snap_dir}"])
+    assert "unknown (unreadable)" in result.output
+    assert result.exit_code == 0
+
+
 def test_show_pretty_prints_json(tmp_path):
     """'show' command replaces the old 'diff' pretty-print behavior."""
     snap_file = tmp_path / "my_test.json"

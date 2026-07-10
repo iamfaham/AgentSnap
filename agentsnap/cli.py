@@ -315,6 +315,96 @@ def list_cmd(snapshot_dir: str) -> None:
             click.echo(f"  {p.stem}")
 
 
+@cli.command("status")
+@click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
+def status_cmd(snapshot_dir: str) -> None:
+    """Show pass/fail/stale status for every snapshot (CI-friendly, exits 1 on FAIL)."""
+    snapshots = list_snapshots(snapshot_dir)
+    if not snapshots:
+        click.echo(f"No snapshots found in '{snapshot_dir}'.")
+        return
+
+    last_run_dir = Path(snapshot_dir) / ".last_run"
+    counts: dict[str, int] = {}
+    any_fail = False
+    matched_names: set[str] = set()
+
+    click.echo(f"Snapshots in '{snapshot_dir}':")
+
+    for p in snapshots:
+        name = p.stem
+        matched_names.add(name)
+        last_run_p = last_run_dir / f"{name}.json"
+
+        try:
+            golden = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            click.secho(f"  {name:<40} unknown (unreadable)", fg="white", dim=True)
+            counts["unreadable"] = counts.get("unreadable", 0) + 1
+            continue
+
+        if not last_run_p.exists():
+            click.secho(f"  {name:<40} no run", fg="white", dim=True)
+            counts["no run"] = counts.get("no run", 0) + 1
+            continue
+
+        try:
+            run_data = json.loads(last_run_p.read_text(encoding="utf-8"))
+        except Exception:
+            click.secho(f"  {name:<40} unknown (unreadable)", fg="white", dim=True)
+            counts["unreadable"] = counts.get("unreadable", 0) + 1
+            continue
+
+        golden_recorded = golden.get("recorded_at", "")
+        run_recorded = run_data.get("recorded_at", "")
+
+        if run_recorded <= golden_recorded:
+            click.secho(f"  {name:<40} approved (re-run tests)", fg="white", dim=True)
+            counts["approved"] = counts.get("approved", 0) + 1
+            continue
+
+        result = run_data.get("result")
+        if result is None:
+            click.secho(f"  {name:<40} unknown (re-run tests)", fg="white", dim=True)
+            counts["unknown"] = counts.get("unknown", 0) + 1
+            continue
+
+        if result.get("passed"):
+            mode = result.get("mode", "")
+            line = f"PASS   ({mode})" if mode else "PASS"
+            click.secho(f"  {name:<40} {line}", fg="green")
+            counts["passed"] = counts.get("passed", 0) + 1
+        else:
+            failed_checks = ",".join(result.get("failed_checks", []))
+            click.secho(f"  {name:<40} FAIL   {failed_checks}", fg="red")
+            counts["failed"] = counts.get("failed", 0) + 1
+            any_fail = True
+
+    if last_run_dir.exists():
+        for lr in sorted(last_run_dir.glob("*.json")):
+            if lr.stem not in matched_names:
+                click.secho(f"  {lr.stem:<40} unapproved new run", fg="white", dim=True)
+                counts["unapproved"] = counts.get("unapproved", 0) + 1
+
+    labels = {
+        "passed": "passed",
+        "failed": "failed",
+        "no run": "no run",
+        "approved": "approved",
+        "unknown": "unknown",
+        "unreadable": "unreadable",
+        "unapproved": "unapproved new run",
+    }
+    summary_parts = [
+        f"{counts[key]} {labels[key]}"
+        for key in ("passed", "failed", "no run", "approved", "unknown", "unreadable", "unapproved")
+        if counts.get(key)
+    ]
+    click.echo(f"Summary: {', '.join(summary_parts)}")
+
+    raise SystemExit(1 if any_fail else 0)
+
+
 def main() -> None:
     cli()
 

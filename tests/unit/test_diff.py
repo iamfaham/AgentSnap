@@ -133,23 +133,38 @@ def test_argument_no_change():
     assert argument_diffs(OLD_TRACE, OLD_TRACE) == {}
 
 
-def test_argument_changed():
+def _force_plain_diff(monkeypatch):
+    """Pin the plain-dict fallback shape regardless of whether deepdiff is installed."""
+    monkeypatch.setattr("agentsnap.core.diff._deepdiff_args", lambda *a, **k: None)
+
+
+def test_argument_changed(monkeypatch):
+    _force_plain_diff(monkeypatch)
     new_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "bar"}}]
     diffs = argument_diffs(OLD_TRACE, new_trace)
     assert "search[0]" in diffs
     assert diffs["search[0]"]["changed"]["query"] == ("foo", "bar")
 
 
-def test_argument_added_key():
+def test_argument_added_key(monkeypatch):
+    _force_plain_diff(monkeypatch)
     new_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "foo", "limit": 10}}]
     diffs = argument_diffs(OLD_TRACE, new_trace)
     assert "limit" in diffs["search[0]"]["added"]
 
 
-def test_argument_removed_key():
+def test_argument_removed_key(monkeypatch):
+    _force_plain_diff(monkeypatch)
     old_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "foo", "limit": 5}}]
     diffs = argument_diffs(old_trace, OLD_TRACE)
     assert "limit" in diffs["search[0]"]["removed"]
+
+
+def test_argument_changed_detected_with_any_backend():
+    """Shape-agnostic: a changed arg is detected whether or not deepdiff is installed."""
+    new_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "bar"}}]
+    diffs = argument_diffs(OLD_TRACE, new_trace)
+    assert diffs.get("search[0]")
 
 
 def test_argument_ignored_fields():

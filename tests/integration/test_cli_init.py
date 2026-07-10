@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import types
 import unittest.mock as mock
 from pathlib import Path
 
@@ -7,6 +9,13 @@ import pytest
 from click.testing import CliRunner
 
 from agentsnap.cli import cli
+
+
+def _fake_sentence_transformers(monkeypatch):
+    """Make `import sentence_transformers` succeed without the real package."""
+    monkeypatch.setitem(
+        sys.modules, "sentence_transformers", types.ModuleType("sentence_transformers")
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -216,6 +225,7 @@ def test_check_exits_1_when_not_configured(tmp_path, monkeypatch):
 
 def test_check_offline_cached(tmp_path, monkeypatch):
     """check exits 0 and reports model cached when offline model is present."""
+    _fake_sentence_transformers(monkeypatch)
     monkeypatch.setattr(
         "agentsnap.setup_wizard.check_offline_model",
         lambda: "/fake/cache/models--sentence-transformers--all-MiniLM-L6-v2",
@@ -234,6 +244,7 @@ def test_check_offline_cached(tmp_path, monkeypatch):
 
 def test_check_offline_not_cached(tmp_path, monkeypatch):
     """check exits 0 but notes model will download on first test run."""
+    _fake_sentence_transformers(monkeypatch)
     monkeypatch.setattr(
         "agentsnap.setup_wizard.check_offline_model",
         lambda: None,

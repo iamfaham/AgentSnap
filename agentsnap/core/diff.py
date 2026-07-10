@@ -67,6 +67,14 @@ def _get_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
 
 
 def _cosine_similarity(a: Any, b: Any) -> float:
+    if np is None:
+        # Pure-python fallback so custom embed_fn vectors work without numpy
+        # (numpy ships with the offline extra, not the base install).
+        av, bv = [float(x) for x in a], [float(x) for x in b]
+        denom = sum(x * x for x in av) ** 0.5 * sum(y * y for y in bv) ** 0.5
+        if denom < 1e-10:
+            return 1.0 if av == bv else 0.0
+        return sum(x * y for x, y in zip(av, bv)) / denom
     a, b = np.array(a, dtype=float), np.array(b, dtype=float)
     denom = np.linalg.norm(a) * np.linalg.norm(b)
     if denom < 1e-10:

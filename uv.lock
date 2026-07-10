@@ -41,6 +41,8 @@ dev = [
     { name = "anthropic" },
     { name = "deepdiff" },
     { name = "langgraph" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
@@ -81,6 +83,7 @@ requires-dist = [
     { name = "mistralai", marker = "extra == 'all-providers'", specifier = ">=1.0" },
     { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=1.0" },
     { name = "numpy", marker = "extra == 'all-providers'", specifier = ">=1.24" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.24" },
     { name = "numpy", marker = "extra == 'offline'", specifier = ">=1.24" },
     { name = "openai", specifier = ">=1.0" },
     { name = "pytest", specifier = ">=7.0" },

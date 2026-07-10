@@ -44,6 +44,7 @@ dev = [
     "anthropic>=0.25",
     "langgraph",
     "deepdiff>=6.0",
+    "numpy>=1.24",
 ]
 
 [project.scripts]

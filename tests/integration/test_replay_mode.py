@@ -253,8 +253,13 @@ def test_replay_fails_on_prompt_change(tmp_path):
     _record_golden(tmp_path)
     tool = ToolAdapter(lambda query: f"results for {query}", name="search")
     client = AnthropicAdapter(ExplodingClient())
+    # The changed input also changes the final output, so the semantic layer
+    # runs — stub it so the test never loads sentence-transformers.
+    identical_embed = lambda texts: [[1.0, 0.0] for _ in texts]  # noqa: E731
     with pytest.raises(AgentRegressionError) as exc_info:
-        with AgentAsserter("replay_it", snapshot_dir=str(tmp_path), mode="replay") as a:
+        with AgentAsserter(
+            "replay_it", snapshot_dir=str(tmp_path), mode="replay", embed_fn=identical_embed
+        ) as a:
             a.output = SimpleToolAgent(client, tool, "DIFFERENT INPUT")
     assert "llm_requests" in exc_info.value.diff_report.failed_checks
 

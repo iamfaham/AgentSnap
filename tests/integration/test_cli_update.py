@@ -34,6 +34,9 @@ def test_update_shows_diff_and_confirms(tmp_path):
     assert "new output" in result.output
     assert "fetch" in result.output
 
+    promoted = json.loads(snapshot_path(name, snap_dir).read_text())
+    assert "result" not in promoted
+
 
 def test_update_aborts_without_yes(tmp_path):
     runner = CliRunner()
@@ -131,7 +134,9 @@ def test_update_all_promotes_only_candidates(tmp_path):
     assert f"--- {passing}.json ---" not in result.output
 
     # Golden files updated for candidates
-    assert json.loads(snapshot_path(failing, snap_dir).read_text())["output"] == "new"
+    failing_golden = json.loads(snapshot_path(failing, snap_dir).read_text())
+    assert failing_golden["output"] == "new"
+    assert "result" not in failing_golden
     assert json.loads(snapshot_path(new_one, snap_dir).read_text())["output"] == "brand new"
     assert json.loads(snapshot_path(differing, snap_dir).read_text())["output"] == "new diff"
 
@@ -166,6 +171,26 @@ def test_update_all_no_candidates_reports_up_to_date(tmp_path):
     result = runner.invoke(cli, ["update", "--all", "--yes", f"--snapshot-dir={snap_dir}"])
     assert result.exit_code == 0, result.output
     assert "All snapshots are up to date." in result.output
+
+
+def test_update_all_skips_corrupt_golden(tmp_path):
+    runner = CliRunner()
+    snap_dir = str(tmp_path / "snaps")
+    name = "corrupt_golden_test"
+
+    golden = snapshot_path(name, snap_dir)
+    golden.parent.mkdir(parents=True, exist_ok=True)
+    golden.write_text("{not valid json", encoding="utf-8")
+
+    # No "result" field -> _is_all_candidate falls through to reading (and failing on) the golden.
+    _write_snap(last_run_path(name, snap_dir), output="new", tools=["fetch"])
+
+    result = runner.invoke(cli, ["update", "--all", "--yes", f"--snapshot-dir={snap_dir}"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Skipping '{name}': golden snapshot is unreadable" in result.output
+    # Golden left untouched (still corrupt, not overwritten)
+    assert golden.read_text(encoding="utf-8") == "{not valid json"
 
 
 def test_update_all_skips_corrupt_last_run(tmp_path):

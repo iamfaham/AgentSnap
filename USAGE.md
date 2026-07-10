@@ -429,7 +429,7 @@ git add __agent_snapshots__/my_agent.json
 git commit -m "approve: updated golden after model upgrade"
 ```
 
-For multiple failures at once, run `agentsnap status` first to see what changed across every snapshot, then `agentsnap update --all` to batch-approve every failing or new snapshot in one pass (still shows a diff per file and prompts for confirmation unless `--yes` is passed).
+For multiple failures at once, run `agentsnap status` first to see what changed across every snapshot, then `agentsnap update --all` to batch-approve every failing or new snapshot in one pass (shows a diff per file, then asks for one confirmation for the whole batch, unless `--yes` is passed).
 
 Other useful CLI commands:
 

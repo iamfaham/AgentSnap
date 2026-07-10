@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -159,8 +158,14 @@ def _approve_pairs(pairs: list[tuple[Path, Path]], yes: bool) -> None:
             raise SystemExit(1)
 
     for src, dst in pairs:
-        shutil.copy2(src, dst)
+        data = json.loads(src.read_text(encoding="utf-8"))
+        data.pop("result", None)
+        dst.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
         click.echo(f"Updated snapshot: {dst}")
+
+
+class _GoldenUnreadableError(Exception):
+    """Raised by _is_all_candidate when the golden (not the last_run) is corrupt."""
 
 
 def _is_all_candidate(last_run_p: Path, snapshot_dir: str) -> bool:
@@ -171,6 +176,8 @@ def _is_all_candidate(last_run_p: Path, snapshot_dir: str) -> bool:
     2. no golden with the same filename exists, or
     3. no result field AND output/trace differ from the golden.
     Returns False (skip) for unreadable/corrupt last_run files — caller warns separately.
+    Raises _GoldenUnreadableError if the last_run is fine but the golden is corrupt,
+    so the caller can attribute the warning correctly.
     """
     dst = Path(snapshot_dir) / last_run_p.name
     run_data = json.loads(last_run_p.read_text(encoding="utf-8"))
@@ -182,7 +189,11 @@ def _is_all_candidate(last_run_p: Path, snapshot_dir: str) -> bool:
     if result is not None:
         return not result.get("passed", False)
 
-    golden = json.loads(dst.read_text(encoding="utf-8"))
+    try:
+        golden = json.loads(dst.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise _GoldenUnreadableError(str(exc)) from exc
+
     return (
         run_data.get("output", "") != golden.get("output", "")
         or run_data.get("trace", []) != golden.get("trace", [])
@@ -214,6 +225,9 @@ def update_cmd(test_name: str | None, update_all: bool, snapshot_dir: str, yes: 
         for src in sorted(last_run_dir.glob("*.json")):
             try:
                 is_candidate = _is_all_candidate(src, snapshot_dir)
+            except _GoldenUnreadableError:
+                click.echo(f"Skipping '{src.stem}': golden snapshot is unreadable", err=True)
+                continue
             except Exception as exc:
                 click.echo(f"Skipping unreadable last run '{src.name}': {exc}", err=True)
                 continue

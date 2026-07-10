@@ -142,7 +142,7 @@ class AgentAsserter:
                 config=config,
                 embed_fn=self.embed_fn,
             )
-        except Exception:
+        except BaseException:
             write_last_run(
                 self.test_name,
                 self.snapshot_dir,

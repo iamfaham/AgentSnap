@@ -3,9 +3,16 @@ from __future__ import annotations
 import unittest.mock as mock
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from agentsnap.cli import cli
+
+
+@pytest.fixture(autouse=True)
+def _clean_judge_env(monkeypatch):
+    monkeypatch.delenv("AGENTSNAP_JUDGE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
 # ── agentsnap init — offline path ─────────────────────────────────────────────

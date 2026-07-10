@@ -270,6 +270,68 @@ def update_cmd(test_name: str | None, update_all: bool, snapshot_dir: str, yes: 
     _approve_pairs(pairs, yes)
 
 
+_GITIGNORE_ENTRY = "__agent_snapshots__/.last_run/"
+
+_EXAMPLE_TEST_TEMPLATE = '''"""Example agentsnap snapshot test — replace the fake agent with your own.
+
+First run records a golden snapshot in __agent_snapshots__/ (commit it).
+Every run after that asserts against it. Docs: https://github.com/iamfaham/AgentSnap
+"""
+
+import pytest
+
+
+def my_agent(question: str) -> str:
+    # Replace with your real agent (raw SDK clients are captured automatically
+    # when you also request the `agentsnap_instrument` fixture).
+    return f"echo: {question}"
+
+
+@pytest.mark.skip(reason="template — replace my_agent with your agent, then remove this marker")
+def test_my_agent(snapshot):
+    with snapshot.run("my_agent") as s:
+        s.output = my_agent("What is Python?")
+'''
+
+
+def _ensure_gitignore_entry(project_dir: Path) -> str:
+    """Ensure __agent_snapshots__/.last_run/ is ignored by git. Idempotent.
+
+    Creates .gitignore if absent. Appends a `# agentsnap` comment above the
+    entry when adding. Does nothing if the exact line is already present.
+    """
+    gitignore_path = project_dir / ".gitignore"
+
+    if gitignore_path.exists():
+        content = gitignore_path.read_text(encoding="utf-8")
+        existing_lines = content.splitlines()
+        if _GITIGNORE_ENTRY in existing_lines:
+            return "already in .gitignore"
+
+        new_content = content
+        if new_content and not new_content.endswith("\n"):
+            new_content += "\n"
+        new_content += f"# agentsnap\n{_GITIGNORE_ENTRY}\n"
+        gitignore_path.write_text(new_content, encoding="utf-8")
+        return "added to .gitignore"
+
+    gitignore_path.write_text(f"# agentsnap\n{_GITIGNORE_ENTRY}\n", encoding="utf-8")
+    return "added to .gitignore"
+
+
+def _write_example_test(project_dir: Path) -> str:
+    """Write the example snapshot test template if it doesn't already exist."""
+    tests_dir = project_dir / "tests"
+    test_path = tests_dir / "test_agentsnap_example.py"
+
+    if test_path.exists():
+        return "tests/test_agentsnap_example.py already exists, not overwriting."
+
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    test_path.write_text(_EXAMPLE_TEST_TEMPLATE, encoding="utf-8")
+    return "Created example test at tests/test_agentsnap_example.py"
+
+
 @cli.command("init")
 def init_cmd() -> None:
     """Interactive setup wizard - choose LLM judge or offline embeddings."""
@@ -282,6 +344,13 @@ def init_cmd() -> None:
     result = run_wizard()
     project_dir = Path.cwd()
     apply_result(result, project_dir)
+
+    click.echo(f"\n{_ensure_gitignore_entry(project_dir)}")
+
+    if click.confirm(
+        "Create an example snapshot test at tests/test_agentsnap_example.py?", default=False
+    ):
+        click.echo(_write_example_test(project_dir))
 
     if result.backend == "offline":
         if result.pre_download_model:

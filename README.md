@@ -68,7 +68,7 @@ Asks you to choose a semantic comparison backend:
 | **[2] Offline embeddings** | Nothing — ~22 MB model download, runs anywhere | Any machine, no API key |
 | **[3] Local LLM judge** | *(coming soon)* | Strong local machine, no cloud |
 
-The wizard saves your choice to `pyproject.toml` and your API key (if any) to `.env`. Keys are never written to `pyproject.toml`.
+The wizard saves your choice to `pyproject.toml` and your API key (if any) to `.env`. Keys are never written to `pyproject.toml`. It also adds `__agent_snapshots__/.last_run/` to `.gitignore` (creating the file if needed) and offers to scaffold an example snapshot test at `tests/test_agentsnap_example.py`.
 
 ```bash
 agentsnap check   # verify your setup at any time
@@ -417,9 +417,11 @@ def test_agent(snapshot, agentsnap_instrument):
 agentsnap init                                     # interactive setup wizard — choose backend and save config
 agentsnap check                                    # verify current backend is working (exits 0/1)
 agentsnap list                                     # list all snapshots
+agentsnap status                                   # pass/fail/stale status for every snapshot (CI-friendly, exits 0/1)
 agentsnap diff __agent_snapshots__/my_agent.json   # pretty-print a snapshot
 agentsnap update my_agent                          # show diff and approve last run as new golden
 agentsnap update my_agent --yes                    # approve without confirmation prompt
+agentsnap update --all                             # batch-approve every failing or new snapshot
 ```
 
 ---
@@ -491,6 +493,8 @@ agentsnap update my_agent
 git add __agent_snapshots__/my_agent.json
 git commit -m "approve: updated golden after Sonnet upgrade"
 ```
+
+For multiple failures at once, run `agentsnap status` to see what changed, then `agentsnap update --all` to batch-approve every failing or new snapshot in one pass.
 
 ---
 

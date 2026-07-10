@@ -82,6 +82,8 @@ Calls a small LLM to score whether two responses are semantically equivalent. Mo
 
 The wizard saves your key to `.env` — never to `pyproject.toml` (which gets committed to git).
 
+After you make your backend choice, `agentsnap init` also scaffolds your project: it adds `__agent_snapshots__/.last_run/` to `.gitignore` (creating the file if it doesn't exist, idempotent on repeat runs), and offers to write an example snapshot test to `tests/test_agentsnap_example.py` (opt-in, skipped by default so pytest stays green until you replace the fake agent).
+
 **[2] Offline embeddings — all-MiniLM-L6-v2**
 Uses cosine similarity between sentence embeddings. No API key, no internet after first use. The 22 MB model downloads once and is cached permanently. Runs on any machine including budget cloud VMs (CPU only, ~500 MB RAM).
 
@@ -427,11 +429,15 @@ git add __agent_snapshots__/my_agent.json
 git commit -m "approve: updated golden after model upgrade"
 ```
 
+For multiple failures at once, run `agentsnap status` first to see what changed across every snapshot, then `agentsnap update --all` to batch-approve every failing or new snapshot in one pass (still shows a diff per file and prompts for confirmation unless `--yes` is passed).
+
 Other useful CLI commands:
 
 ```bash
 agentsnap list                                     # list all snapshot files
+agentsnap status                                   # pass/fail/stale status for every snapshot (CI-friendly, exits 0/1)
 agentsnap diff __agent_snapshots__/my_agent.json   # pretty-print a snapshot
+agentsnap update --all                             # batch-approve every failing or new snapshot
 ```
 
 ---

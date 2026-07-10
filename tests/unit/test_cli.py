@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from agentsnap.cli import cli
+from agentsnap.cli import _ensure_gitignore_entry, _write_example_test, cli
 from agentsnap.core.diff import DiffReport
 
 _SNAP = {"output": "hello", "trace": [], "model": "m", "input": {}, "version": "1.0", "recorded_at": "2026-01-01T00:00:00+00:00"}
@@ -253,3 +253,57 @@ def test_show_pretty_prints_json(tmp_path):
     assert result.exit_code == 0
     assert '"output"' in result.output
     assert '"hello"' in result.output
+
+
+# ── _ensure_gitignore_entry ────────────────────────────────────────────────
+
+def test_ensure_gitignore_entry_creates_file(tmp_path):
+    msg = _ensure_gitignore_entry(tmp_path)
+    assert msg == "added to .gitignore"
+    content = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert "__agent_snapshots__/.last_run/" in content.splitlines()
+    assert "# agentsnap" in content
+
+
+def test_ensure_gitignore_entry_appends_to_existing_file(tmp_path):
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("*.pyc\n", encoding="utf-8")
+
+    msg = _ensure_gitignore_entry(tmp_path)
+    assert msg == "added to .gitignore"
+    lines = gitignore.read_text(encoding="utf-8").splitlines()
+    assert "*.pyc" in lines
+    assert "__agent_snapshots__/.last_run/" in lines
+
+
+def test_ensure_gitignore_entry_idempotent(tmp_path):
+    _ensure_gitignore_entry(tmp_path)
+    msg = _ensure_gitignore_entry(tmp_path)
+    assert msg == "already in .gitignore"
+    lines = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert lines.count("__agent_snapshots__/.last_run/") == 1
+
+
+# ── _write_example_test ────────────────────────────────────────────────────
+
+def test_write_example_test_creates_file_and_dir(tmp_path):
+    msg = _write_example_test(tmp_path)
+    assert "Created" in msg
+    example_path = tmp_path / "tests" / "test_agentsnap_example.py"
+    assert example_path.exists()
+    content = example_path.read_text(encoding="utf-8")
+    assert "pytest.mark.skip" in content
+    assert "def my_agent" in content
+    assert "def test_my_agent(snapshot):" in content
+
+
+def test_write_example_test_does_not_overwrite_existing(tmp_path):
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    example_path = tests_dir / "test_agentsnap_example.py"
+    custom_content = "# custom, don't touch\n"
+    example_path.write_text(custom_content, encoding="utf-8")
+
+    msg = _write_example_test(tmp_path)
+    assert "already exists" in msg.lower()
+    assert example_path.read_text(encoding="utf-8") == custom_content

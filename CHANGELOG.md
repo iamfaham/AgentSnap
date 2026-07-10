@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - OpenAI and Anthropic adapters now record `stream=True` calls by teeing the stream — chunks reach the caller unmodified while the assembled response is captured for the snapshot, instead of forcing non-streaming. Groq and OpenRouter inherit this via `OpenAIAdapter`.
 - Replay reconstructs recorded streams deterministically: chunks are rebuilt into real SDK chunk/event objects and yielded back incrementally, with a clear `ReplayError` on streaming/non-streaming shape mismatches. Mistral still forces `stream=False`; the `client.messages.stream()` helper and async streams are not yet supported.
 - `structural_tolerance` is now configurable via `pyproject.toml`, pytest ini options, or a per-test override, instead of being hardcoded.
+- `agentsnap status` shows pass/fail/stale state for every snapshot in one CI-friendly table, exiting 1 if any snapshot is failing.
+- `agentsnap update --all` batch-approves every failing or new snapshot in one pass, instead of requiring one `agentsnap update <test_name>` call per test.
+- `agentsnap init` now scaffolds the project after the wizard finishes: it idempotently adds `__agent_snapshots__/.last_run/` to `.gitignore`, and offers to write an example snapshot test to `tests/test_agentsnap_example.py`.
 - Regression errors print before/after text excerpts for every failing semantic step, not just the final output.
 - Scenario namespacing: multiple snapshots per test function, with an automatic input hash (`input_sha8`) when no explicit scenario name is given; `agentsnap update` promotes all scenario variants at once.
 - Async support: `async with` on `AgentRecorder`/`AgentAsserter`, and `ainvoke` on the LangGraph adapter.

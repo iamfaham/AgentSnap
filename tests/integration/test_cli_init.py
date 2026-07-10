@@ -17,7 +17,7 @@ def test_init_offline_no_predownload(tmp_path):
         result = runner.invoke(
             cli,
             ["init"],
-            input="2\nn\n",   # [2] offline, [n] no pre-download
+            input="2\nn\nn\n",   # [2] offline, [n] no pre-download, [n] no example test
             catch_exceptions=False,
         )
     assert result.exit_code == 0, result.output
@@ -32,7 +32,7 @@ def test_init_offline_with_predownload(tmp_path):
             result = runner.invoke(
                 cli,
                 ["init"],
-                input="2\ny\n",
+                input="2\ny\nn\n",
                 catch_exceptions=False,
             )
     assert result.exit_code == 0, result.output
@@ -43,7 +43,7 @@ def test_init_writes_pyproject_toml(tmp_path):
     """init must create/update pyproject.toml in the working directory."""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        runner.invoke(cli, ["init"], input="2\nn\n", catch_exceptions=False)
+        runner.invoke(cli, ["init"], input="2\nn\nn\n", catch_exceptions=False)
         assert Path("pyproject.toml").exists()
 
 
@@ -54,7 +54,7 @@ def test_init_menu_shows_coming_soon(tmp_path):
         result = runner.invoke(
             cli,
             ["init"],
-            input="2\nn\n",
+            input="2\nn\nn\n",
             catch_exceptions=False,
         )
     assert "coming soon" in result.output.lower()
@@ -70,8 +70,8 @@ def test_init_judge_openrouter(tmp_path):
             result = runner.invoke(
                 cli,
                 ["init"],
-                # [1] judge, [1] openrouter, api key, [y] save to .env, accept default model
-                input="1\n1\nsk-or-test\ny\n\n",
+                # [1] judge, [1] openrouter, api key, [y] save to .env, accept default model, [n] no example test
+                input="1\n1\nsk-or-test\ny\n\nn\n",
                 catch_exceptions=False,
             )
     assert result.exit_code == 0, result.output
@@ -86,7 +86,7 @@ def test_init_judge_saves_key_to_env_not_pyproject(tmp_path):
             runner.invoke(
                 cli,
                 ["init"],
-                input="1\n1\nsk-or-testkey\ny\n\n",
+                input="1\n1\nsk-or-testkey\ny\n\nn\n",
                 catch_exceptions=False,
             )
             assert Path(".env").exists()
@@ -105,8 +105,8 @@ def test_init_judge_connection_failure_shows_warning(tmp_path):
             result = runner.invoke(
                 cli,
                 ["init"],
-                # judge, openrouter, key, save, model(default), decline retry
-                input="1\n1\nsk-bad\ny\n\nn\n",
+                # judge, openrouter, key, save, model(default), decline retry, [n] no example test
+                input="1\n1\nsk-bad\ny\n\nn\nn\n",
                 catch_exceptions=False,
             )
     assert result.exit_code == 0, result.output
@@ -121,14 +121,76 @@ def test_init_judge_uses_existing_env_key(tmp_path):
             result = runner.invoke(
                 cli,
                 ["init"],
-                # judge -> openrouter -> no key prompt -> accept default model
-                input="1\n1\n\n",
+                # judge -> openrouter -> no key prompt -> accept default model -> [n] no example test
+                input="1\n1\n\nn\n",
                 env={"AGENTSNAP_JUDGE_API_KEY": "sk-existing-test"},
                 catch_exceptions=False,
             )
     assert result.exit_code == 0, result.output
     assert "AGENTSNAP_JUDGE_API_KEY" in result.output
     assert not (tmp_path / ".env").exists() or "sk-existing-test" not in (tmp_path / ".env").read_text()
+
+
+# ── agentsnap init — scaffolding (.gitignore + example test) ─────────────────
+
+def test_init_creates_gitignore_with_entry(tmp_path):
+    """Fresh dir: init creates .gitignore containing the .last_run ignore line."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(cli, ["init"], input="2\nn\nn\n", catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        gitignore = Path(".gitignore").read_text(encoding="utf-8")
+        assert "__agent_snapshots__/.last_run/" in gitignore.splitlines()
+        assert "added to .gitignore" in result.output
+
+
+def test_init_gitignore_idempotent_on_second_run(tmp_path):
+    """Running init twice must not duplicate the .gitignore entry."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        runner.invoke(cli, ["init"], input="2\nn\nn\n", catch_exceptions=False)
+        result = runner.invoke(cli, ["init"], input="2\nn\nn\n", catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        gitignore = Path(".gitignore").read_text(encoding="utf-8")
+        assert gitignore.splitlines().count("__agent_snapshots__/.last_run/") == 1
+        assert "already in .gitignore" in result.output
+
+
+def test_init_example_test_created_on_confirm_yes(tmp_path):
+    """Confirming the example-test prompt writes the template with the skip marker."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(cli, ["init"], input="2\nn\ny\n", catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        example_path = Path("tests") / "test_agentsnap_example.py"
+        assert example_path.exists()
+        content = example_path.read_text(encoding="utf-8")
+        assert "pytest.mark.skip" in content
+        assert "def my_agent" in content
+
+
+def test_init_example_test_not_created_on_confirm_no(tmp_path):
+    """Declining the example-test prompt leaves tests/ untouched."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(cli, ["init"], input="2\nn\nn\n", catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        assert not (Path("tests") / "test_agentsnap_example.py").exists()
+
+
+def test_init_example_test_preexisting_untouched(tmp_path):
+    """If tests/test_agentsnap_example.py already exists, init must not overwrite it."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("tests").mkdir()
+        example_path = Path("tests") / "test_agentsnap_example.py"
+        custom_content = "# my custom test, do not touch\n"
+        example_path.write_text(custom_content, encoding="utf-8")
+
+        result = runner.invoke(cli, ["init"], input="2\nn\ny\n", catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        assert example_path.read_text(encoding="utf-8") == custom_content
+        assert "already exists" in result.output.lower()
 
 
 # ── agentsnap check ───────────────────────────────────────────────────────────

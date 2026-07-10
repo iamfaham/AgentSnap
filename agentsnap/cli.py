@@ -151,16 +151,93 @@ def _print_update_diff(old: dict, new: dict) -> None:
         click.echo(f"  model: {old_model!r} → {new_model!r}")
 
 
+def _approve_pairs(pairs: list[tuple[Path, Path]], yes: bool) -> None:
+    """Shared confirm + copy tail for the update command."""
+    if not yes:
+        if not click.confirm(f"\nApprove and update {len(pairs)} snapshot(s)?"):
+            click.echo("Aborted.")
+            raise SystemExit(1)
+
+    for src, dst in pairs:
+        shutil.copy2(src, dst)
+        click.echo(f"Updated snapshot: {dst}")
+
+
+def _is_all_candidate(last_run_p: Path, snapshot_dir: str) -> bool:
+    """Decide whether a .last_run/*.json file should be promoted by --all.
+
+    Candidate when:
+    1. result.passed is False, or
+    2. no golden with the same filename exists, or
+    3. no result field AND output/trace differ from the golden.
+    Returns False (skip) for unreadable/corrupt last_run files — caller warns separately.
+    """
+    dst = Path(snapshot_dir) / last_run_p.name
+    run_data = json.loads(last_run_p.read_text(encoding="utf-8"))
+
+    if not dst.exists():
+        return True
+
+    result = run_data.get("result")
+    if result is not None:
+        return not result.get("passed", False)
+
+    golden = json.loads(dst.read_text(encoding="utf-8"))
+    return (
+        run_data.get("output", "") != golden.get("output", "")
+        or run_data.get("trace", []) != golden.get("trace", [])
+    )
+
+
 @cli.command("update")
-@click.argument("test_name")
+@click.argument("test_name", required=False)
+@click.option("--all", "update_all", is_flag=True, default=False, help="Approve every failing or new snapshot.")
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt.")
-def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
+def update_cmd(test_name: str | None, update_all: bool, snapshot_dir: str, yes: bool) -> None:
     """Show what changed and promote the last run to the golden snapshot.
 
     Promotes all scenario variants: {test_name}.json and {test_name}__*.json.
+    Pass --all instead of TEST_NAME to batch-approve every failing or new snapshot.
     """
+    if bool(test_name) == bool(update_all):
+        raise click.UsageError("Provide a TEST_NAME or --all, not both/neither.")
+
     last_run_dir = Path(snapshot_dir) / ".last_run"
+
+    if update_all:
+        if not last_run_dir.exists():
+            click.echo("All snapshots are up to date.")
+            return
+
+        pairs: list[tuple[Path, Path]] = []
+        for src in sorted(last_run_dir.glob("*.json")):
+            try:
+                is_candidate = _is_all_candidate(src, snapshot_dir)
+            except Exception as exc:
+                click.echo(f"Skipping unreadable last run '{src.name}': {exc}", err=True)
+                continue
+
+            if not is_candidate:
+                continue
+
+            dst = Path(snapshot_dir) / src.name
+            pairs.append((src, dst))
+
+            if dst.exists():
+                old = json.loads(dst.read_text(encoding="utf-8"))
+                new = json.loads(src.read_text(encoding="utf-8"))
+                click.echo(f"\n--- {src.name} ---")
+                _print_update_diff(old, new)
+            else:
+                click.echo(f"\n--- {src.name} --- (new golden)")
+
+        if not pairs:
+            click.echo("All snapshots are up to date.")
+            return
+
+        _approve_pairs(pairs, yes)
+        return
 
     # Collect all last_run files for this test_name (plain + all scenario variants)
     candidates: list[Path] = []
@@ -176,7 +253,7 @@ def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
         raise SystemExit(1)
 
     # Build (src, dst) pairs and show diffs
-    pairs: list[tuple[Path, Path]] = []
+    pairs = []
     for src in candidates:
         # Strip .last_run/ directory — golden lives directly in snapshot_dir
         dst = Path(snapshot_dir) / src.name
@@ -190,14 +267,7 @@ def update_cmd(test_name: str, snapshot_dir: str, yes: bool) -> None:
         else:
             click.echo(f"\n--- {src.name} --- (new golden)")
 
-    if not yes:
-        if not click.confirm(f"\nApprove and update {len(pairs)} snapshot(s)?"):
-            click.echo("Aborted.")
-            raise SystemExit(1)
-
-    for src, dst in pairs:
-        shutil.copy2(src, dst)
-        click.echo(f"Updated snapshot: {dst}")
+    _approve_pairs(pairs, yes)
 
 
 @cli.command("init")

@@ -14,6 +14,15 @@ import numpy as np
 
 pytest_plugins = ["pytester"]
 
+
+@pytest.fixture(autouse=True)
+def _clean_judge_env(monkeypatch):
+    # Earlier tests' config.load() can leak a real .env judge key into
+    # os.environ; pin the no-judge code path regardless of the dev machine.
+    monkeypatch.delenv("AGENTSNAP_JUDGE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
 _DIM = 8
 
 def _identical_embed(texts):

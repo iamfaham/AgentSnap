@@ -476,7 +476,7 @@ def list_cmd(snapshot_dir: str) -> None:
 @cli.command("status")
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 def status_cmd(snapshot_dir: str) -> None:
-    """Show pass/fail/stale status for every snapshot (CI-friendly, exits 1 on FAIL or unreadable files)."""
+    """Show pass/fail/stale status for every snapshot (CI-friendly, exits 1 on FAIL or unreadable golden/matched last-run files)."""
     snapshots = list_snapshots(snapshot_dir)
     if not snapshots:
         click.echo(f"No snapshots found in '{snapshot_dir}'.")

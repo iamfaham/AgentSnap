@@ -84,16 +84,21 @@ def test_next_llm_event_thread_safe_under_concurrency():
     errors: list[BaseException] = []
 
     def worker():
-        while True:
-            try:
-                event = s.next_llm_event()
-            except ReplayError:
-                # Session exhausted: fire one extra pull to confirm it keeps raising.
-                with pytest.raises(ReplayError):
-                    s.next_llm_event()
-                return
-            with results_lock:
-                results.append(event)
+        # Exceptions in non-main threads die silently — capture them so the
+        # main thread's `assert not errors` actually fails the test.
+        try:
+            while True:
+                try:
+                    event = s.next_llm_event()
+                except ReplayError:
+                    # Session exhausted: one extra pull must keep raising.
+                    with pytest.raises(ReplayError):
+                        s.next_llm_event()
+                    return
+                with results_lock:
+                    results.append(event)
+        except BaseException as e:  # noqa: BLE001
+            errors.append(e)
 
     threads = [threading.Thread(target=worker) for _ in range(8)]
     for t in threads:

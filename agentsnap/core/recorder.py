@@ -34,10 +34,18 @@ class TraceAccumulator:
             self._streams.append(stream)
 
     def finalize_streams(self) -> None:
+        # close() also records (idempotent) and releases the underlying SDK
+        # connection; isolate failures so one bad stream can't skip the rest.
         with self._lock:
             streams = list(self._streams)
         for stream in streams:
-            stream._record()
+            try:
+                stream.close()
+            except Exception:
+                try:
+                    stream._record()
+                except Exception:
+                    pass
 
     @property
     def trace(self) -> list[dict]:

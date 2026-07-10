@@ -68,6 +68,24 @@ def test_demo_replay_runs_clean():
     assert "Caught the prompt change" in result.stdout
 
 
+def test_demo_streaming_runs_clean():
+    """demo_streaming.py must record a streaming call, then replay it with zero live calls."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "demo_streaming.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"demo_streaming.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "chunks arrived incrementally" in result.stdout
+    assert "PASSED deterministically" in result.stdout
+    assert "ZERO live API calls" in result.stdout
+
+
 def test_demo_mock_includes_zero_instrumentation(tmp_path):
     """demo_mock.py stdout must mention zero-instrumentation."""
     result = subprocess.run(

@@ -166,6 +166,23 @@ Notes:
 - With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash
   is not available because the snapshot is read before the test body runs).
 
+### Streaming agents
+
+`AnthropicAdapter` and `OpenAIAdapter` tee `stream=True` calls (Groq and
+OpenRouter inherit this from `OpenAIAdapter`): chunks are forwarded to your
+agent unmodified while the assembled response is recorded for replay, with
+`raw_response={"__stream__": True, "chunks": [...]}`.
+
+In replay mode the recorded chunks are rebuilt into real SDK chunk/event
+objects and yielded back incrementally — your agent consumes them exactly
+like a live stream, with zero API calls. A recording made from a streaming
+call cannot replay as a non-streaming request (or vice versa) — that raises
+`ReplayError` with a clear "shape mismatch" message.
+
+Not yet supported: the `client.messages.stream()` context-manager helper,
+and async streams. Mistral still forces `stream=False` on every call. See
+`examples/demo_streaming.py` for a full runnable walkthrough.
+
 ---
 
 ## Supported providers

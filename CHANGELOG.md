@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Request-side diffing for replay mode, plus an exact-match short-circuit so identical requests skip semantic scoring entirely.
 - New `SnapshotFormatError` and `ReplayError` exception types with clear, actionable messages (e.g. when a snapshot predates v1.1 and can't be replayed).
 - `agentsnap diff` now runs the full semantic comparison pipeline (previously only did a raw JSON diff); new `agentsnap show` command replaces the old ad-hoc diff pretty-printer.
+- OpenAI and Anthropic adapters now record `stream=True` calls by teeing the stream — chunks reach the caller unmodified while the assembled response is captured for the snapshot, instead of forcing non-streaming. Groq and OpenRouter inherit this via `OpenAIAdapter`.
+- Replay reconstructs recorded streams deterministically: chunks are rebuilt into real SDK chunk/event objects and yielded back incrementally, with a clear `ReplayError` on streaming/non-streaming shape mismatches. Mistral still forces `stream=False`; the `client.messages.stream()` helper and async streams are not yet supported.
 - `structural_tolerance` is now configurable via `pyproject.toml`, pytest ini options, or a per-test override, instead of being hardcoded.
 - Regression errors print before/after text excerpts for every failing semantic step, not just the final output.
 - Scenario namespacing: multiple snapshots per test function, with an automatic input hash (`input_sha8`) when no explicit scenario name is given; `agentsnap update` promotes all scenario variants at once.

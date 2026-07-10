@@ -85,12 +85,12 @@ Every adapter checks `TraceAccumulator.current()`, forwards the real call, pushe
 
 **Replay mode** (`core/replay.py`) — `AgentAsserter(mode="replay")` replays recorded `raw_response` payloads through the adapters instead of calling live APIs; the diff flips to request-side comparison (`compare_llm_requests` in `DiffConfig`). Anthropic/OpenAI (plus Groq/OpenRouter via OpenAIAdapter subclass); other adapters raise `ReplayError` in replay mode.
 
-**Adapters** — `stream=False` is forced in OpenAI and Mistral adapters to prevent partial streaming responses from being recorded. Groq and OpenRouter subclass `OpenAIAdapter` directly (OpenAI-compatible interface). All new adapters must also force `stream=False` if the SDK supports streaming.
+**Adapters** — OpenAI and Anthropic adapters tee `stream=True` calls (`OpenAIRecordingStream` / `AnthropicRecordingStream`): chunks pass through to the caller unmodified while the assembled response is recorded as `raw_response={"__stream__": True, "chunks": [...]}`. Replay rebuilds those chunks into real SDK objects via `replay_stream()`; a streaming recording replayed as a non-streaming request (or vice versa) raises `ReplayError`. Mistral still forces `stream=False` to prevent partial streaming responses from being recorded. Groq and OpenRouter subclass `OpenAIAdapter` directly (OpenAI-compatible interface), so they inherit the tee for free. Not yet supported: the `client.messages.stream()` context-manager helper, and async streams. All new adapters must either force `stream=False` if the SDK supports streaming, or implement an equivalent recording tee.
 
 ### Adding a new provider adapter
 
 1. Create `agentsnap/adapters/<provider>.py`
-2. Check `TraceAccumulator.current()`, force `stream=False`, forward the call, push `{"type": "llm_call", "messages": [...], "response": str, "tokens": int}`
+2. Check `TraceAccumulator.current()`, force `stream=False` (or implement a recording tee if the SDK supports streaming), forward the call, push `{"type": "llm_call", "messages": [...], "response": str, "tokens": int}`
 3. Add optional dep to `pyproject.toml`
 4. Add mock client + demo function to `examples/demo_mock.py`
 

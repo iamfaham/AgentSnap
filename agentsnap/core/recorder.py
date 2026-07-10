@@ -20,6 +20,7 @@ class TraceAccumulator:
         self._trace: list[dict] = []
         self._step = 0
         self._lock = threading.Lock()
+        self._streams: list = []
 
     def push(self, event: dict) -> None:
         with self._lock:
@@ -27,6 +28,16 @@ class TraceAccumulator:
             recorded["step"] = self._step
             self._step += 1
             self._trace.append(recorded)
+
+    def register_stream(self, stream) -> None:
+        with self._lock:
+            self._streams.append(stream)
+
+    def finalize_streams(self) -> None:
+        with self._lock:
+            streams = list(self._streams)
+        for stream in streams:
+            stream._record()
 
     @property
     def trace(self) -> list[dict]:
@@ -71,6 +82,8 @@ class AgentRecorder:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         _accumulator_var.reset(self._token)
+        if self._accumulator is not None:
+            self._accumulator.finalize_streams()
         if exc_type is None:
             assert self._accumulator is not None
             write_snapshot(

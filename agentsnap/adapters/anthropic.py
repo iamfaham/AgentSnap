@@ -94,6 +94,7 @@ class AnthropicRecordingStream:
         self._input_tokens = 0
         self._output_tokens = 0
         self._recorded = False
+        acc.register_stream(self)
 
     def __iter__(self):
         # finally covers natural exhaustion, consumer break (GeneratorExit),

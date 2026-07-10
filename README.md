@@ -183,9 +183,9 @@ Not yet supported: the `client.messages.stream()` context-manager helper,
 and async streams. Mistral still forces `stream=False` on every call. See
 `examples/demo_streaming.py` for a full runnable walkthrough.
 
-A stream that is never iterated and never closed is not recorded — always
-consume or close streams inside the recording context (using `with ...`
-guarantees this).
+A stream that is never iterated and never closed is finalized automatically
+at recorder/asserter exit, but consuming or closing it promptly is still
+recommended so events appear in call order.
 
 ---
 

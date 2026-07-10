@@ -547,3 +547,59 @@ def test_anthropic_replay_stream_supports_context_manager_protocol():
         assert events[1].delta.text == "Hello, "
         assert events[2].delta.text == "world!"
     s.close()  # closing after the with-block is a harmless no-op
+
+
+# ── finalize_streams: recorder/asserter exit flushes unconsumed streams ────────
+
+def test_unconsumed_stream_flushed_on_recorder_exit(tmp_path):
+    """A tee created but never iterated/closed must still appear in the snapshot."""
+    completions = FakeCompletions(FakeStream(_chunks()))
+    client = OpenAIAdapter(FakeClient(completions))
+
+    with AgentRecorder("unconsumed_stream", snapshot_dir=str(tmp_path)) as rec:
+        result = client.chat.completions.create(
+            model="m", messages=[{"role": "user", "content": "hi"}], stream=True
+        )
+        assert isinstance(result, OpenAIRecordingStream)
+        rec.output = ""
+        # never iterate, never close
+
+    assert len(rec.accumulator.trace) == 1
+    event = rec.accumulator.trace[0]
+    assert event["type"] == "llm_call"
+    assert event["response"] == ""
+    assert event["raw_response"] == {"__stream__": True, "chunks": []}
+
+
+def test_partially_consumed_stream_via_held_iterator_flushed_on_recorder_exit(tmp_path):
+    """Consumer holds a bare iterator (no close, no GC) — exit still flushes partial text."""
+    completions = FakeCompletions(FakeStream(_chunks()))
+    client = OpenAIAdapter(FakeClient(completions))
+
+    with AgentRecorder("held_iterator_stream", snapshot_dir=str(tmp_path)) as rec:
+        result = client.chat.completions.create(
+            model="m", messages=[{"role": "user", "content": "hi"}], stream=True
+        )
+        it = iter(result)
+        first = next(it)
+        assert first.choices[0].delta.content == "Hello, "
+        rec.output = ""
+        # `it` is held (not dropped), never closed, never exhausted
+
+    assert len(rec.accumulator.trace) == 1
+    assert rec.accumulator.trace[0]["response"] == "Hello, "
+
+
+def test_fully_consumed_stream_not_double_pushed_on_recorder_exit(tmp_path):
+    completions = FakeCompletions(FakeStream(_chunks()))
+    client = OpenAIAdapter(FakeClient(completions))
+
+    with AgentRecorder("consumed_stream", snapshot_dir=str(tmp_path)) as rec:
+        result = client.chat.completions.create(
+            model="m", messages=[{"role": "user", "content": "hi"}], stream=True
+        )
+        collected = list(result)
+        rec.output = "".join((c.choices[0].delta.content or "") for c in collected)
+
+    assert len(rec.accumulator.trace) == 1
+    assert rec.accumulator.trace[0]["response"] == "Hello, world!"

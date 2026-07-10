@@ -90,6 +90,7 @@ class OpenAIRecordingStream:
         self._text: list[str] = []
         self._tokens = 0
         self._recorded = False
+        acc.register_stream(self)
 
     def __iter__(self):
         # finally covers natural exhaustion, consumer break (GeneratorExit),

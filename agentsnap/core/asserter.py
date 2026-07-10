@@ -80,6 +80,7 @@ class AgentAsserter:
             return False
 
         assert self._accumulator is not None
+        self._accumulator.finalize_streams()
         new_trace = self._accumulator.trace
         scenario = self._resolved_scenario()
 

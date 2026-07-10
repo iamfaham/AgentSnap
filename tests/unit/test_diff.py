@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from agentsnap.core.diff import (
+    DiffConfig,
     DiffReport,
     _cosine_similarity,
     argument_diffs,
@@ -132,23 +133,38 @@ def test_argument_no_change():
     assert argument_diffs(OLD_TRACE, OLD_TRACE) == {}
 
 
-def test_argument_changed():
+def _force_plain_diff(monkeypatch):
+    """Pin the plain-dict fallback shape regardless of whether deepdiff is installed."""
+    monkeypatch.setattr("agentsnap.core.diff._deepdiff_args", lambda *a, **k: None)
+
+
+def test_argument_changed(monkeypatch):
+    _force_plain_diff(monkeypatch)
     new_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "bar"}}]
     diffs = argument_diffs(OLD_TRACE, new_trace)
     assert "search[0]" in diffs
     assert diffs["search[0]"]["changed"]["query"] == ("foo", "bar")
 
 
-def test_argument_added_key():
+def test_argument_added_key(monkeypatch):
+    _force_plain_diff(monkeypatch)
     new_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "foo", "limit": 10}}]
     diffs = argument_diffs(OLD_TRACE, new_trace)
     assert "limit" in diffs["search[0]"]["added"]
 
 
-def test_argument_removed_key():
+def test_argument_removed_key(monkeypatch):
+    _force_plain_diff(monkeypatch)
     old_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "foo", "limit": 5}}]
     diffs = argument_diffs(old_trace, OLD_TRACE)
     assert "limit" in diffs["search[0]"]["removed"]
+
+
+def test_argument_changed_detected_with_any_backend():
+    """Shape-agnostic: a changed arg is detected whether or not deepdiff is installed."""
+    new_trace = [_LLM_STEP, {**_TOOL_STEP, "args": {"query": "bar"}}]
+    diffs = argument_diffs(OLD_TRACE, new_trace)
+    assert diffs.get("search[0]")
 
 
 def test_argument_ignored_fields():
@@ -186,7 +202,9 @@ def _make_snapshot(trace=None, output="hello world"):
 def test_compute_diff_passes_at_threshold():
     snapshot = _make_snapshot(output="hello world")
     # identical embed → score = 1.0, threshold = 0.92 → passes
-    report = compute_diff(snapshot, OLD_TRACE, "hello world", semantic_threshold=0.92, embed_fn=_identical_embed)
+    report = compute_diff(snapshot, OLD_TRACE, "hello world",
+                          config=DiffConfig(semantic_threshold=0.92),
+                          embed_fn=_identical_embed)
     assert report.passed
 
 
@@ -194,7 +212,8 @@ def test_compute_diff_fails_below_threshold():
     snapshot = _make_snapshot(output="hello world")
     # orthogonal embed → score = 0.0 < 0.92 → output fails; llm_threshold=0.0 so llm passes
     report = compute_diff(snapshot, OLD_TRACE, "completely different",
-                          semantic_threshold=0.92, llm_threshold=0.0, embed_fn=_orthogonal_embed)
+                          config=DiffConfig(semantic_threshold=0.92, llm_threshold=0.0),
+                          embed_fn=_orthogonal_embed)
     assert not report.passed
     assert any("semantic" in f for f in report.failed_checks)
 
@@ -204,23 +223,29 @@ def test_compute_diff_llm_threshold_separate():
     # orthogonal embed → llm score = 0.0, output score = 0.0
     # llm_threshold=0.0 → llm passes; semantic_threshold=0.92 → output fails
     report = compute_diff(snapshot, OLD_TRACE, "completely different",
-                          semantic_threshold=0.92, llm_threshold=0.0, embed_fn=_orthogonal_embed)
+                          config=DiffConfig(semantic_threshold=0.92, llm_threshold=0.0),
+                          embed_fn=_orthogonal_embed)
     assert "semantic:output" in report.failed_checks
     assert not any(f.startswith("semantic:llm") for f in report.failed_checks)
 
 
 def test_compute_diff_llm_threshold_catches_drift():
     snapshot = _make_snapshot(output="hello world")
-    # identical output but orthogonal llm response → llm_threshold=0.9 catches it
-    report = compute_diff(snapshot, OLD_TRACE, "hello world",
-                          semantic_threshold=0.0, llm_threshold=0.9, embed_fn=_orthogonal_embed)
+    # identical output but slightly different (non-identical) llm response so the
+    # exact-match short-circuit doesn't apply → orthogonal embed → llm_threshold=0.9 catches it
+    new_trace = [{**_LLM_STEP, "response": _LLM_STEP["response"] + "!"}, _TOOL_STEP]
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(semantic_threshold=0.0, llm_threshold=0.9),
+                          embed_fn=_orthogonal_embed)
     assert not report.passed
     assert any(f.startswith("semantic:llm") for f in report.failed_checks)
 
 
 def test_compute_diff_passes_above_threshold():
     snapshot = _make_snapshot(output="hello world")
-    report = compute_diff(snapshot, OLD_TRACE, "hello world", semantic_threshold=0.50, embed_fn=_identical_embed)
+    report = compute_diff(snapshot, OLD_TRACE, "hello world",
+                          config=DiffConfig(semantic_threshold=0.50),
+                          embed_fn=_identical_embed)
     assert report.passed
 
 
@@ -239,3 +264,328 @@ def test_diff_report_dataclass():
     assert r.argument_diffs == {}
     assert r.semantic_scores == {}
     assert r.failed_checks == []
+
+
+# ── DiffConfig ────────────────────────────────────────────────────────────────
+
+def test_diffconfig_defaults():
+    cfg = DiffConfig()
+    assert cfg.semantic_threshold == 0.92
+    assert cfg.structural_tolerance == 0
+    assert cfg.structural_threshold == 0.8
+    assert cfg.llm_threshold is None
+    assert cfg.ignored_fields == []
+    assert cfg.judge is None
+
+
+def test_diffconfig_resolved_llm_threshold_no_judge():
+    cfg = DiffConfig()
+    assert cfg._resolved_llm_threshold() == pytest.approx(0.75)
+
+
+def test_diffconfig_resolved_llm_threshold_with_judge():
+    cfg = DiffConfig(judge=object())
+    assert cfg._resolved_llm_threshold() == pytest.approx(0.40)
+
+
+def test_diffconfig_explicit_llm_threshold_overrides_judge():
+    cfg = DiffConfig(llm_threshold=0.5, judge=object())
+    assert cfg._resolved_llm_threshold() == pytest.approx(0.5)
+
+
+def test_compute_diff_accepts_diffconfig():
+    snapshot = _make_snapshot(output="hello world")
+    report = compute_diff(snapshot, OLD_TRACE, "hello world",
+                          config=DiffConfig(semantic_threshold=0.92),
+                          embed_fn=_identical_embed)
+    assert report.passed
+
+
+def test_structural_tolerance_zero_fails_on_extra_tool():
+    new_trace = OLD_TRACE + [
+        {"step": 2, "type": "tool_call", "name": "extra", "args": {}, "result": ""}
+    ]
+    snapshot = _make_snapshot()
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(structural_tolerance=0),
+                          embed_fn=_identical_embed)
+    assert not report.passed
+    assert "structural" in report.failed_checks
+
+
+def test_structural_tolerance_one_passes_on_one_extra_tool():
+    new_trace = OLD_TRACE + [
+        {"step": 2, "type": "tool_call", "name": "extra", "args": {}, "result": ""}
+    ]
+    snapshot = _make_snapshot()
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(structural_tolerance=1),
+                          embed_fn=_identical_embed)
+    assert report.passed
+    assert "structural" not in report.failed_checks
+
+
+def test_structural_tolerance_one_fails_on_two_extra_tools():
+    new_trace = OLD_TRACE + [
+        {"step": 2, "type": "tool_call", "name": "extra1", "args": {}, "result": ""},
+        {"step": 3, "type": "tool_call", "name": "extra2", "args": {}, "result": ""},
+    ]
+    snapshot = _make_snapshot()
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(structural_tolerance=1),
+                          embed_fn=_identical_embed)
+    assert not report.passed
+    assert "structural" in report.failed_checks
+
+
+# ── LLMJudge structural scoring ───────────────────────────────────────────────
+
+class _MockJudge:
+    """Stub that avoids real OpenAI calls in unit tests."""
+    def __init__(self, semantic_score: float = 1.0, structural_score: float = 1.0):
+        self._semantic_score = semantic_score
+        self._structural_score = structural_score
+        self._reasons: dict = {}
+        self._call_count = 0
+
+    def score(self, old: str, new: str, key: str | None = None) -> float:
+        actual_key = key if key is not None else f"comparison[{self._call_count}]"
+        self._call_count += 1
+        self._reasons[actual_key] = "mock reason"
+        return self._semantic_score
+
+    def score_structural(self, old_tools: list, new_tools: list) -> tuple:
+        return self._structural_score, "mock structural reason"
+
+    def last_reasons(self) -> dict:
+        return dict(self._reasons)
+
+
+def test_judge_structural_passes_when_score_above_structural_threshold():
+    new_trace = [_LLM_STEP, {**_TOOL_STEP, "name": "different_tool"}]
+    snapshot = _make_snapshot()
+    judge = _MockJudge(structural_score=0.9)
+    # default structural_threshold = 0.8; score 0.9 > 0.8 → structural passes
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(judge=judge),
+                          embed_fn=_identical_embed)
+    assert "structural" not in report.failed_checks
+    assert report.structural_score == pytest.approx(0.9)
+
+
+def test_judge_structural_fails_when_score_below_structural_threshold():
+    new_trace = [_LLM_STEP, {**_TOOL_STEP, "name": "different_tool"}]
+    snapshot = _make_snapshot()
+    judge = _MockJudge(structural_score=0.6)
+    # 0.6 < structural_threshold 0.8 → fails even though it's above llm_threshold (0.40)
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(judge=judge),
+                          embed_fn=_identical_embed)
+    assert "structural" in report.failed_checks
+    assert report.structural_score == pytest.approx(0.6)
+
+
+def test_judge_structural_reason_stored_in_report():
+    new_trace = [_LLM_STEP, {**_TOOL_STEP, "name": "different_tool"}]
+    snapshot = _make_snapshot()
+    judge = _MockJudge(structural_score=0.1)
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(judge=judge),
+                          embed_fn=_identical_embed)
+    assert report.structural_reason == "mock structural reason"
+
+
+def test_judge_reasons_stored_by_step_key():
+    """score() with explicit key must store the reason under that key — not a generic counter."""
+    judge = _MockJudge()
+    judge.score("llm response old", "llm response new", key="llm_call[0]")
+    judge.score("final output old", "final output new", key="output")
+    assert "llm_call[0]" in judge._reasons
+    assert "output" in judge._reasons
+    # generic counter keys must not appear when explicit keys were given
+    assert "comparison[0]" not in judge._reasons
+
+
+def test_diffconfig_structural_tolerance_ignored_when_judge_present():
+    """When judge is present, structural_tolerance has no effect; judge score decides."""
+    new_trace = OLD_TRACE + [
+        {"step": 2, "type": "tool_call", "name": "extra", "args": {}, "result": ""}
+    ]
+    snapshot = _make_snapshot()
+    # tolerance=0 would normally fail, but judge says equivalent (score=0.9 > 0.8 structural_threshold)
+    judge = _MockJudge(structural_score=0.9)
+    report = compute_diff(snapshot, new_trace, "hello world",
+                          config=DiffConfig(structural_tolerance=0, judge=judge),
+                          embed_fn=_identical_embed)
+    assert "structural" not in report.failed_checks
+
+
+def test_judge_not_called_when_tool_sequences_identical():
+    """structural_diff returns None for identical sequences; score_structural must never be invoked.
+
+    Verifies Issue 4 fix: no wasted LLM calls for runs where tool names haven't changed.
+    """
+    class _CountingJudge(_MockJudge):
+        def __init__(self):
+            super().__init__()
+            self.structural_calls = 0
+
+        def score_structural(self, old_tools, new_tools):
+            self.structural_calls += 1
+            return super().score_structural(old_tools, new_tools)
+
+    snapshot = _make_snapshot()  # OLD_TRACE contains one 'search' tool call
+    judge = _CountingJudge()
+    # Same trace → same tool sequence → structural_diff returns None → judge never called
+    report = compute_diff(snapshot, OLD_TRACE, "hello world",
+                          config=DiffConfig(judge=judge),
+                          embed_fn=_identical_embed)
+    assert report.passed
+    assert judge.structural_calls == 0, "judge.score_structural must not be called for identical sequences"
+
+
+# ── AgentRegressionError formatting ──────────────────────────────────────────
+
+from agentsnap.exceptions import AgentRegressionError
+
+
+def _make_error(
+    test_name="my_test",
+    struct=None,
+    arg_diffs=None,
+    scores=None,
+    reasons=None,
+    failed=None,
+    old_output="old answer",
+    new_output="new answer",
+    old_trace=None,
+    new_trace=None,
+):
+    report = DiffReport(
+        passed=False,
+        structural_diff=struct,
+        argument_diffs=arg_diffs or {},
+        semantic_scores=scores or {"output": 0.71},
+        semantic_reasons=reasons or {},
+        failed_checks=failed or ["semantic:output"],
+    )
+    old_snapshot = {"trace": old_trace or [], "output": old_output}
+    return AgentRegressionError(test_name, report, old_snapshot, new_trace or [], new_output)
+
+
+def test_error_str_contains_test_name():
+    err = _make_error(test_name="billing_test")
+    assert "billing_test" in str(err)
+
+
+def test_error_str_shows_old_and_new_output_on_semantic_failure():
+    err = _make_error(old_output="the old answer", new_output="the new answer")
+    s = str(err)
+    assert "the old answer" in s
+    assert "the new answer" in s
+
+
+def test_error_str_does_not_show_text_when_output_passes():
+    report = DiffReport(
+        passed=False,
+        structural_diff="Tool sequence changed (edit distance 1): ['a'] -> ['b']",
+        argument_diffs={},
+        semantic_scores={"output": 0.98},
+        semantic_reasons={},
+        failed_checks=["structural"],
+    )
+    err = AgentRegressionError(
+        "t", report, {"trace": [], "output": "old"}, [], "old"
+    )
+    s = str(err)
+    # output text should not appear — it passed
+    assert "old\n  now:" not in s
+
+
+def test_error_str_shows_arg_changes():
+    err = _make_error(
+        arg_diffs={"search[0]": {"changed": {"query": ("old q", "new q")}}},
+        failed=["arguments"],
+        scores={"output": 1.0},
+    )
+    s = str(err)
+    assert "search[0]" in s
+    assert "old q" in s
+    assert "new q" in s
+
+
+# ── Replay mode: llm request diffs + exact-match short-circuit ──────────────
+
+def test_semantic_scores_short_circuits_identical_text():
+    from agentsnap.core.diff import semantic_scores
+
+    def exploding_embed(texts):
+        raise AssertionError("embedding called for identical text")
+
+    trace = [{"type": "llm_call", "messages": [], "response": "same", "tokens": 1}]
+    scores, reasons = semantic_scores(trace, trace, "out", "out", embed_fn=exploding_embed)
+    assert scores["llm_call[0]"] == 1.0
+    assert scores["output"] == 1.0
+
+
+def test_llm_request_diffs_detects_changed_messages():
+    from agentsnap.core.diff import llm_request_diffs
+
+    old = [{"type": "llm_call", "messages": [{"role": "user", "content": "original prompt"}], "response": "r"}]
+    new = [{"type": "llm_call", "messages": [{"role": "user", "content": "edited prompt"}], "response": "r"}]
+    diffs = llm_request_diffs(old, new)
+    assert "llm_call[0].messages" in diffs
+
+
+def test_llm_request_diffs_detects_count_mismatch():
+    from agentsnap.core.diff import llm_request_diffs
+
+    old = [{"type": "llm_call", "messages": [], "response": "r"}] * 2
+    new = [{"type": "llm_call", "messages": [], "response": "r"}]
+    diffs = llm_request_diffs(old, new)
+    assert "llm_call_count" in diffs
+    assert "2" in diffs["llm_call_count"] and "1" in diffs["llm_call_count"]
+
+
+def test_llm_request_diffs_empty_when_identical():
+    from agentsnap.core.diff import llm_request_diffs
+
+    trace = [{"type": "llm_call", "messages": [{"role": "user", "content": "p"}], "response": "r"}]
+    assert llm_request_diffs(trace, trace) == {}
+
+
+def test_compute_diff_compare_llm_requests_fails_on_prompt_change():
+    from agentsnap.core.diff import DiffConfig, compute_diff
+
+    old_snapshot = {
+        "trace": [{"step": 0, "type": "llm_call",
+                   "messages": [{"role": "user", "content": "original"}],
+                   "response": "r", "tokens": 1}],
+        "output": "out",
+    }
+    new_trace = [{"step": 0, "type": "llm_call",
+                  "messages": [{"role": "user", "content": "edited"}],
+                  "response": "r", "tokens": 1}]
+    report = compute_diff(
+        old_snapshot, new_trace, "out",
+        config=DiffConfig(compare_llm_requests=True),
+    )
+    assert not report.passed
+    assert "llm_requests" in report.failed_checks
+    assert "llm_call[0].messages" in report.argument_diffs
+
+
+def test_compute_diff_compare_llm_requests_passes_when_identical():
+    from agentsnap.core.diff import DiffConfig, compute_diff
+
+    snapshot = {
+        "trace": [{"step": 0, "type": "llm_call",
+                   "messages": [{"role": "user", "content": "p"}],
+                   "response": "r", "tokens": 1}],
+        "output": "out",
+    }
+    report = compute_diff(
+        snapshot, list(snapshot["trace"]), "out",
+        config=DiffConfig(compare_llm_requests=True),
+    )
+    assert report.passed

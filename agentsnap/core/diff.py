@@ -3,7 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-import numpy as np
+from agentsnap.core.normalize import DEFAULT_VOLATILE_FIELDS, normalize_trace
+
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment]
+
+_DEFAULT_LLM_THRESHOLD_EMBED = 0.75
+_DEFAULT_LLM_THRESHOLD_JUDGE = 0.40
 
 _embedding_model = None
 
@@ -59,6 +67,14 @@ def _get_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
 
 
 def _cosine_similarity(a: Any, b: Any) -> float:
+    if np is None:
+        # Pure-python fallback so custom embed_fn vectors work without numpy
+        # (numpy ships with the offline extra, not the base install).
+        av, bv = [float(x) for x in a], [float(x) for x in b]
+        denom = sum(x * x for x in av) ** 0.5 * sum(y * y for y in bv) ** 0.5
+        if denom < 1e-10:
+            return 1.0 if av == bv else 0.0
+        return sum(x * y for x, y in zip(av, bv)) / denom
     a, b = np.array(a, dtype=float), np.array(b, dtype=float)
     denom = np.linalg.norm(a) * np.linalg.norm(b)
     if denom < 1e-10:
@@ -94,6 +110,21 @@ Scoring guide:
   0.0 = completely different or contradictory
 """
 
+_STRUCTURAL_JUDGE_PROMPT = """\
+You are evaluating whether a change in an AI agent's tool call sequence is a meaningful behavioral regression.
+
+Old tool sequence: {old_tools}
+New tool sequence: {new_tools}
+
+Respond with ONLY a JSON object on one line:
+{{"score": <float 0.0-1.0>, "reason": "<one sentence>"}}
+
+Scoring guide:
+  1.0 = sequences are functionally equivalent (same tools, minor reorder or extra retry)
+  0.5 = partially equivalent (some tools added/removed that could affect the result)
+  0.0 = fundamentally different path (key tools dropped or replaced)
+"""
+
 
 class LLMJudge:
     """Semantic scorer that uses an LLM to compare outputs instead of embeddings.
@@ -121,23 +152,12 @@ class LLMJudge:
         self.model = model
         self.base_url = base_url
         self._reasons: dict[str, str] = {}
-
-    def score(self, old: str, new: str) -> float:
-        """Return a 0.0–1.0 equivalence score and cache the reason."""
-        import json
+        self._call_count: int = 0
         import openai
+        self._client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
 
-        client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
-        resp = client.chat.completions.create(
-            model=self.model,
-            max_tokens=100,
-            temperature=0.0,
-            messages=[{
-                "role": "user",
-                "content": _JUDGE_PROMPT.format(old=old, new=new),
-            }],
-        )
-        raw = (resp.choices[0].message.content or "").strip()
+    def _parse_judge_response(self, raw: str) -> tuple[float, str]:
+        import json
         try:
             parsed = json.loads(raw)
             score = float(parsed.get("score", 0.0))
@@ -145,8 +165,47 @@ class LLMJudge:
         except (json.JSONDecodeError, ValueError):
             score = 0.0
             reason = f"Judge returned unparseable response: {raw!r}"
-        self._reasons[f"{old[:30]}..."] = reason
-        return max(0.0, min(1.0, score))
+        return max(0.0, min(1.0, score)), reason
+
+    def score(self, old: str, new: str, key: str | None = None) -> float:
+        """Return a 0.0-1.0 equivalence score for two text outputs.
+
+        key: if given, reasons are stored under this key (e.g. "llm_call[0]", "output")
+             so AgentRegressionError can look them up by step name.
+             If None, falls back to a sequential counter key.
+        """
+        resp = self._client.chat.completions.create(
+            model=self.model,
+            max_tokens=100,
+            temperature=0.0,
+            messages=[{"role": "user", "content": _JUDGE_PROMPT.format(old=old, new=new)}],
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        score, reason = self._parse_judge_response(raw)
+        actual_key = key if key is not None else f"comparison[{self._call_count}]"
+        self._call_count += 1
+        self._reasons[actual_key] = reason
+        return score
+
+    def score_structural(self, old_tools: list[str], new_tools: list[str]) -> tuple[float, str]:
+        """Score whether a tool sequence change is a meaningful behavioral regression.
+
+        Returns (score, reason). Score 1.0 = equivalent, 0.0 = fundamentally different.
+        Does not increment _call_count or populate _reasons (structural is a separate concern).
+        """
+        resp = self._client.chat.completions.create(
+            model=self.model,
+            max_tokens=100,
+            temperature=0.0,
+            messages=[{
+                "role": "user",
+                "content": _STRUCTURAL_JUDGE_PROMPT.format(
+                    old_tools=old_tools, new_tools=new_tools
+                ),
+            }],
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        return self._parse_judge_response(raw)
 
     def last_reasons(self) -> dict[str, str]:
         return dict(self._reasons)
@@ -181,9 +240,28 @@ def _edit_distance(a: list, b: list) -> int:
 
 
 @dataclass
+class DiffConfig:
+    """Consolidates all comparison settings passed to compute_diff."""
+    semantic_threshold: float = 0.92
+    llm_threshold: float | None = None
+    structural_tolerance: int = 0
+    structural_threshold: float = 0.8  # judge threshold for structural check only
+    ignored_fields: list[str] = field(default_factory=list)
+    judge: "LLMJudge | None" = None
+    compare_llm_requests: bool = False  # replay mode: diff request messages
+
+    def _resolved_llm_threshold(self) -> float:
+        if self.llm_threshold is not None:
+            return self.llm_threshold
+        return _DEFAULT_LLM_THRESHOLD_JUDGE if self.judge is not None else _DEFAULT_LLM_THRESHOLD_EMBED
+
+
+@dataclass
 class DiffReport:
     passed: bool
     structural_diff: str | None = None
+    structural_score: float | None = None
+    structural_reason: str | None = None
     argument_diffs: dict[str, Any] = field(default_factory=dict)
     semantic_scores: dict[str, float] = field(default_factory=dict)
     semantic_reasons: dict[str, str] = field(default_factory=dict)
@@ -272,6 +350,29 @@ def argument_diffs(
     return diffs
 
 
+def llm_request_diffs(
+    old_trace: list[dict],
+    new_trace: list[dict],
+    ignored_fields: list[str] | None = None,
+) -> dict[str, Any]:
+    """Diff the request side of llm_calls (messages sent). Used in replay mode."""
+    ignored = set(ignored_fields or [])
+    old_llm = _llm_calls(old_trace)
+    new_llm = _llm_calls(new_trace)
+    diffs: dict[str, Any] = {}
+    if len(old_llm) != len(new_llm):
+        diffs["llm_call_count"] = (
+            f"snapshot has {len(old_llm)} llm_call(s), new run made {len(new_llm)}"
+        )
+    for i, (old, new) in enumerate(zip(old_llm, new_llm)):
+        old_msgs = {"messages": old.get("messages", [])}
+        new_msgs = {"messages": new.get("messages", [])}
+        diff = _deepdiff_args(old_msgs, new_msgs, ignored) or _plain_diff_args(old_msgs, new_msgs, ignored)
+        if diff:
+            diffs[f"llm_call[{i}].messages"] = diff
+    return diffs
+
+
 # ---------------------------------------------------------------------------
 # Semantic scoring — embedding cosine sim or LLM judge
 # ---------------------------------------------------------------------------
@@ -299,8 +400,14 @@ def semantic_scores(
             key = f"llm_call[{i}]"
             old_resp = str(old.get("response", ""))
             new_resp = str(new.get("response", ""))
-            scores[key] = judge.score(old_resp, new_resp)
-        scores["output"] = judge.score(old_output, new_output)
+            if old_resp == new_resp:
+                scores[key] = 1.0
+                continue
+            scores[key] = judge.score(old_resp, new_resp, key=key)
+        if old_output == new_output:
+            scores["output"] = 1.0
+        else:
+            scores["output"] = judge.score(old_output, new_output, key="output")
         reasons = judge.last_reasons()
     else:
         _embed_fn = embed_fn or _embed
@@ -309,10 +416,16 @@ def semantic_scores(
         for i, (old, new) in enumerate(zip(old_llm, new_llm)):
             old_resp = str(old.get("response", ""))
             new_resp = str(new.get("response", ""))
+            if old_resp == new_resp:
+                scores[f"llm_call[{i}]"] = 1.0
+                continue
             embs = _embed_fn([old_resp, new_resp])
             scores[f"llm_call[{i}]"] = _cosine_similarity(embs[0], embs[1])
-        embs = _embed_fn([old_output, new_output])
-        scores["output"] = _cosine_similarity(embs[0], embs[1])
+        if old_output == new_output:
+            scores["output"] = 1.0
+        else:
+            embs = _embed_fn([old_output, new_output])
+            scores["output"] = _cosine_similarity(embs[0], embs[1])
 
     return scores, reasons
 
@@ -325,47 +438,69 @@ def compute_diff(
     old_snapshot: dict,
     new_trace: list[dict],
     new_output: str,
-    semantic_threshold: float = 0.92,
-    llm_threshold: float = 0.75,
-    ignored_fields: list[str] | None = None,
+    config: DiffConfig | None = None,
     embed_fn: Callable[[list[str]], list[Any]] | None = None,
-    judge: LLMJudge | None = None,
+    normalize: bool = True,
 ) -> DiffReport:
     """Compare a new trace against a golden snapshot.
 
-    Semantic comparison uses embedding cosine similarity by default.
-    Pass judge=LLMJudge(...) to use an LLM for more accurate comparison.
-
-    Two thresholds:
-    - semantic_threshold (0.92): final agent output — should be stable.
-    - llm_threshold (0.75): intermediate LLM responses — tolerates natural variance.
+    normalize=True strips volatile fields before comparison.
+    Pass config=DiffConfig(...) to control thresholds, tolerance, and judge.
     """
+    if config is None:
+        config = DiffConfig()
+
     old_trace = old_snapshot["trace"]
     old_output = old_snapshot["output"]
     failed: list[str] = []
+    llm_threshold = config._resolved_llm_threshold()
 
-    struct = structural_diff(old_trace, new_trace)
-    if struct:
-        failed.append("structural")
+    if normalize:
+        old_trace = normalize_trace(old_trace, DEFAULT_VOLATILE_FIELDS)
+        new_trace = normalize_trace(new_trace, DEFAULT_VOLATILE_FIELDS)
+
+    old_tools = [s["name"] for s in _tool_calls(old_trace)]
+    new_tools = [s["name"] for s in _tool_calls(new_trace)]
+    struct_desc = structural_diff(old_trace, new_trace)
+    struct_score: float | None = None
+    struct_reason: str | None = None
+
+    if struct_desc is not None:
+        if config.judge is not None:
+            struct_score, struct_reason = config.judge.score_structural(old_tools, new_tools)
+            if struct_score < config.structural_threshold:
+                failed.append("structural")
+        else:
+            dist = _edit_distance(old_tools, new_tools)
+            if dist > config.structural_tolerance:
+                failed.append("structural")
 
     arg_diffs: dict[str, Any] = {}
-    if struct is None:
-        arg_diffs = argument_diffs(old_trace, new_trace, ignored_fields)
+    if "structural" not in failed:
+        arg_diffs = argument_diffs(old_trace, new_trace, config.ignored_fields)
         if arg_diffs:
             failed.append("arguments")
 
+    if config.compare_llm_requests:
+        req_diffs = llm_request_diffs(old_trace, new_trace, config.ignored_fields)
+        if req_diffs:
+            arg_diffs.update(req_diffs)
+            failed.append("llm_requests")
+
     sem, reasons = semantic_scores(
         old_trace, new_trace, old_output, new_output,
-        embed_fn=embed_fn, judge=judge,
+        embed_fn=embed_fn, judge=config.judge,
     )
-    for key, score in sem.items():
-        threshold = semantic_threshold if key == "output" else llm_threshold
+    for step, score in sem.items():
+        threshold = config.semantic_threshold if step == "output" else llm_threshold
         if score < threshold:
-            failed.append(f"semantic:{key}")
+            failed.append(f"semantic:{step}")
 
     return DiffReport(
         passed=len(failed) == 0,
-        structural_diff=struct,
+        structural_diff=struct_desc,
+        structural_score=struct_score,
+        structural_reason=struct_reason,
         argument_diffs=arg_diffs,
         semantic_scores=sem,
         semantic_reasons=reasons,

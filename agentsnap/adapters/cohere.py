@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 
 class _CohereV2ChatProxy:
@@ -13,6 +14,11 @@ class _CohereV2ChatProxy:
         acc = TraceAccumulator.current()
         if acc is None:
             return self._original(**kwargs)
+        if acc.replay is not None:
+            raise ReplayError(
+                "replay mode does not yet support Cohere; "
+                "use mode='live' for this test."
+            )
 
         messages = kwargs.get("messages", [])
         response = self._original(**kwargs)

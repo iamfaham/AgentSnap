@@ -30,6 +30,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addini("agentsnap_judge_base_url",     default=None,   help="Base URL for judge LLM API")
     parser.addini("agentsnap_semantic_threshold", default="0.92", help="Threshold for final output similarity")
     parser.addini("agentsnap_llm_threshold",      default="0.75", help="Threshold for intermediate LLM response similarity")
+    parser.addini(
+        "agentsnap_structural_tolerance",
+        default=None,
+        help="Max allowed Levenshtein edit distance in tool call sequence before structural check fails",
+    )
     parser.addoption(
         "--agentsnap-record",
         action="store_true",
@@ -41,6 +46,23 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Auto-patch all installed LLM SDKs for zero-instrumentation capture.",
+    )
+    parser.addini(
+        "agentsnap_mode",
+        default=None,
+        help="Assert mode: 'live' (default, calls real APIs) or 'replay' (deterministic, replays recorded responses)",
+    )
+    parser.addoption(
+        "--agentsnap-replay",
+        action="store_true",
+        default=False,
+        help="Assert in replay mode: recorded LLM responses are replayed; no live API calls.",
+    )
+    parser.addoption(
+        "--agentsnap-live",
+        action="store_true",
+        default=False,
+        help="Force live mode, overriding config and --agentsnap-replay.",
     )
 
 
@@ -80,9 +102,7 @@ class _AutoContext:
             print(f"\n  [agentsnap] recording '{self._test_name}'")
         else:
             self._ctx = self._asserter.__enter__()
-            if not self._asserter._record_mode:
-                print(f"\n  [agentsnap] asserting '{self._test_name}'")
-            # if _record_mode, AgentAsserter.__enter__ already printed the recording message
+            print(f"\n  [agentsnap] asserting '{self._test_name}'")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -108,6 +128,17 @@ class _AutoContext:
         if self._is_record:
             self._recorder.input_data = value
 
+    @property
+    def input(self):
+        return self._asserter.input if not self._is_record else self._recorder.input_data
+
+    @input.setter
+    def input(self, value) -> None:
+        if self._is_record:
+            self._recorder.input_data = value
+        else:
+            self._asserter.input = value
+
 
 # -- Fixture ------------------------------------------------------------------
 
@@ -119,12 +150,16 @@ class SnapshotFixture:
         llm_threshold: float,
         judge: LLMJudge | None,
         force_record: bool = False,
+        structural_tolerance: int = 0,
+        mode: str = "live",
     ) -> None:
         self.snapshot_dir = snapshot_dir
         self.semantic_threshold = semantic_threshold
         self.llm_threshold = llm_threshold
         self.judge = judge
         self.force_record = force_record
+        self.structural_tolerance = structural_tolerance
+        self.mode = mode
 
     def run(
         self,
@@ -134,6 +169,10 @@ class SnapshotFixture:
         llm_threshold: float | None = None,
         ignored_fields: list[str] | None = None,
         judge: LLMJudge | None = None,
+        scenario: str | None = None,
+        structural_tolerance: int | None = None,
+        mode: str | None = None,
+        replay_tools: bool = False,
     ) -> _AutoContext:
         """Auto context manager: records if no snapshot exists, asserts if it does.
 
@@ -143,15 +182,17 @@ class SnapshotFixture:
             with snapshot.run("my_agent") as s:
                 s.output = my_agent(client, tool, "test input")
         """
-        snap_exists = snapshot_path(test_name, self.snapshot_dir).exists()
+        snap_exists = snapshot_path(test_name, self.snapshot_dir, scenario=scenario).exists()
         is_record = not snap_exists or self.force_record
-        recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model)
-        asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge)
+        recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario)
+        asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields,
+                                       judge, scenario=scenario, structural_tolerance=structural_tolerance,
+                                       mode=mode, replay_tools=replay_tools)
         return _AutoContext(test_name, recorder, asserter, is_record=is_record)
 
-    def record_agent(self, test_name: str, model: str = "unknown") -> AgentRecorder:
+    def record_agent(self, test_name: str, model: str = "unknown", scenario: str | None = None) -> AgentRecorder:
         """Explicit record mode."""
-        return AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model)
+        return AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario)
 
     def assert_agent(
         self,
@@ -161,9 +202,16 @@ class SnapshotFixture:
         ignored_fields: list[str] | None = None,
         embed_fn: Callable[[list[str]], list[Any]] | None = None,
         judge: LLMJudge | None = None,
+        scenario: str | None = None,
+        structural_tolerance: int | None = None,
+        mode: str | None = None,
+        replay_tools: bool = False,
     ) -> AgentAsserter:
         """Explicit assert mode. Pass judge=False to force embeddings."""
-        return self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields, judge, embed_fn)
+        return self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields,
+                                   judge, embed_fn, scenario=scenario,
+                                   structural_tolerance=structural_tolerance,
+                                   mode=mode, replay_tools=replay_tools)
 
     def _make_asserter(
         self,
@@ -173,6 +221,10 @@ class SnapshotFixture:
         ignored_fields: list[str] | None,
         judge: LLMJudge | None,
         embed_fn: Callable | None = None,
+        scenario: str | None = None,
+        structural_tolerance: int | None = None,
+        mode: str | None = None,
+        replay_tools: bool = False,
     ) -> AgentAsserter:
         effective_judge = judge if judge is not None else self.judge
         if judge is False:
@@ -185,6 +237,10 @@ class SnapshotFixture:
             ignored_fields=ignored_fields,
             embed_fn=embed_fn,
             judge=effective_judge,
+            scenario=scenario,
+            structural_tolerance=structural_tolerance if structural_tolerance is not None else self.structural_tolerance,
+            mode=mode if mode is not None else self.mode,
+            replay_tools=replay_tools,
         )
 
 
@@ -228,8 +284,9 @@ def snapshot(request: pytest.FixtureRequest):
     snapshot_dir = _find_snapshot_dir(request)
     cfg = load(Path(request.fspath).parent)
 
-    semantic_threshold = float(_ini(request, "agentsnap_semantic_threshold", cfg["semantic_threshold"]))
-    llm_threshold      = float(_ini(request, "agentsnap_llm_threshold",      cfg["llm_threshold"]))
+    semantic_threshold   = float(_ini(request, "agentsnap_semantic_threshold",   cfg["semantic_threshold"]))
+    llm_threshold        = float(_ini(request, "agentsnap_llm_threshold",        cfg["llm_threshold"]))
+    structural_tolerance = int(_ini(request, "agentsnap_structural_tolerance", cfg.get("structural_tolerance", 0)))
 
     judge: LLMJudge | None = None
     api_key = cfg.get("judge_api_key")
@@ -241,12 +298,20 @@ def snapshot(request: pytest.FixtureRequest):
     force_record = request.config.getoption("--agentsnap-record", default=False)
     instrument   = request.config.getoption("--agentsnap-instrument", default=False)
 
+    mode = str(_ini(request, "agentsnap_mode", cfg.get("mode", "live")))
+    if request.config.getoption("--agentsnap-replay", default=False):
+        mode = "replay"
+    if request.config.getoption("--agentsnap-live", default=False):
+        mode = "live"
+
     fixture = SnapshotFixture(
         snapshot_dir=snapshot_dir,
         semantic_threshold=semantic_threshold,
         llm_threshold=llm_threshold,
         judge=judge,
         force_record=force_record,
+        structural_tolerance=structural_tolerance,
+        mode=mode,
     )
 
     if instrument:

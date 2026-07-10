@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 
 class _MistralCompletionsProxy:
@@ -11,6 +12,11 @@ class _MistralCompletionsProxy:
         acc = TraceAccumulator.current()
         if acc is None:
             return self._original.complete(**kwargs)
+        if acc.replay is not None:
+            raise ReplayError(
+                "replay mode does not yet support Mistral; "
+                "use mode='live' for this test."
+            )
 
         messages = kwargs.get("messages", [])
         kwargs["stream"] = False

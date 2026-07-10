@@ -8,6 +8,7 @@ from agentsnap.adapters.anthropic import AnthropicAdapter
 from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
+from agentsnap.core.snapshot import input_sha8, snapshot_path
 from agentsnap.exceptions import AgentRegressionError
 from tests.fixtures.mock_agents import (
     MockAnthropicClient,
@@ -126,6 +127,13 @@ def test_semantic_drift_above_threshold_fails(tmp_path):
         tool = ToolAdapter(_search_fn, name="search")
         rec.output = SimpleToolAgent(client, tool, "hello")
 
+    # Output text differs by one character from the recorded run (via a tool fn
+    # that appends "!") so it is not byte-identical — this keeps the exact-match
+    # short-circuit in semantic_scores() from bypassing the orthogonal embed stub,
+    # which simulates semantic drift for this test.
+    def _search_fn_drifted(query: str) -> str:
+        return f"{_search_fn(query)}!"
+
     with pytest.raises(AgentRegressionError) as exc_info:
         with AgentAsserter(
             name,
@@ -134,7 +142,7 @@ def test_semantic_drift_above_threshold_fails(tmp_path):
             embed_fn=_orthogonal_embed,
         ) as asserter:
             client2 = AnthropicAdapter(_simple_client())
-            tool2 = ToolAdapter(_search_fn, name="search")
+            tool2 = ToolAdapter(_search_fn_drifted, name="search")
             asserter.output = SimpleToolAgent(client2, tool2, "hello")
 
     failed = exc_info.value.diff_report.failed_checks
@@ -256,3 +264,182 @@ def test_last_run_written_on_assert(tmp_path):
         pass
 
     assert last_run_path(name, snapshot_dir).exists()
+
+
+def test_last_run_result_recorded_on_pass(tmp_path):
+    import json
+    from agentsnap.core.snapshot import last_run_path
+
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "last_run_pass"
+
+    with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        rec.output = SimpleToolAgent(client, tool, "q")
+
+    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_identical_embed) as asserter:
+        client2 = AnthropicAdapter(_simple_client())
+        tool2 = ToolAdapter(_search_fn, name="search")
+        asserter.output = SimpleToolAgent(client2, tool2, "q")
+
+    data = json.loads(last_run_path(name, snapshot_dir).read_text(encoding="utf-8"))
+    assert data["result"]["passed"] is True
+    assert data["result"]["mode"] == "live"
+
+
+def test_last_run_result_recorded_on_fail(tmp_path):
+    import json
+    from agentsnap.core.snapshot import last_run_path
+
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "last_run_fail"
+
+    with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        rec.output = SimpleToolAgent(client, tool, "hello")
+
+    def _search_fn_drifted(query: str) -> str:
+        return f"{_search_fn(query)}!"
+
+    with pytest.raises(AgentRegressionError):
+        with AgentAsserter(
+            name,
+            snapshot_dir=snapshot_dir,
+            semantic_threshold=0.92,
+            embed_fn=_orthogonal_embed,
+        ) as asserter:
+            client2 = AnthropicAdapter(_simple_client())
+            tool2 = ToolAdapter(_search_fn_drifted, name="search")
+            asserter.output = SimpleToolAgent(client2, tool2, "hello")
+
+    data = json.loads(last_run_path(name, snapshot_dir).read_text(encoding="utf-8"))
+    assert data["result"]["passed"] is False
+    assert len(data["result"]["failed_checks"]) > 0
+
+
+def test_last_run_no_result_key_on_comparison_crash(tmp_path):
+    import json
+    from agentsnap.core.snapshot import last_run_path
+
+    snapshot_dir = str(tmp_path / "snaps")
+    name = "last_run_crash"
+
+    with AgentRecorder(name, snapshot_dir=snapshot_dir) as rec:
+        client = AnthropicAdapter(_simple_client())
+        tool = ToolAdapter(_search_fn, name="search")
+        rec.output = SimpleToolAgent(client, tool, "hello")
+
+    def _raising_embed(texts):
+        raise RuntimeError("embedding backend exploded")
+
+    def _search_fn_drifted(query: str) -> str:
+        return f"{_search_fn(query)}!"
+
+    with pytest.raises(RuntimeError):
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_raising_embed) as asserter:
+            client2 = AnthropicAdapter(_simple_client())
+            tool2 = ToolAdapter(_search_fn_drifted, name="search")
+            asserter.output = SimpleToolAgent(client2, tool2, "hello")
+
+    data = json.loads(last_run_path(name, snapshot_dir).read_text(encoding="utf-8"))
+    assert "result" not in data
+
+
+# ── Scenario / input-binding tests ────────────────────────────────────────────
+
+def test_recorder_explicit_scenario_namespaces_file(tmp_path):
+    snap_dir = str(tmp_path)
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="query_a") as r:
+        r.output = "answer A"
+
+    assert snapshot_path("agent", snap_dir, scenario="query_a").exists()
+    assert not snapshot_path("agent", snap_dir).exists()
+
+
+def test_recorder_auto_hash_from_input_data(tmp_path):
+    snap_dir = str(tmp_path)
+    inp = {"query": "what is 2+2?"}
+    with AgentRecorder("agent", snapshot_dir=snap_dir) as r:
+        r.input_data = inp
+        r.output = "4"
+
+    sha = input_sha8(inp)
+    assert snapshot_path("agent", snap_dir, scenario=sha).exists()
+
+
+def test_recorder_no_input_uses_plain_path(tmp_path):
+    snap_dir = str(tmp_path)
+    with AgentRecorder("agent", snapshot_dir=snap_dir) as r:
+        r.output = "result"
+
+    assert snapshot_path("agent", snap_dir).exists()
+
+
+def test_asserter_explicit_scenario_roundtrip(tmp_path):
+    snap_dir = str(tmp_path)
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="s1") as r:
+        r.output = "the answer"
+
+    with AgentAsserter("agent", snapshot_dir=snap_dir, scenario="s1",
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.output = "the answer"
+    # No exception = pass
+
+
+def test_asserter_auto_hash_from_input_roundtrip(tmp_path):
+    """a.input set inside the with block must drive scenario resolution."""
+    snap_dir = str(tmp_path)
+    inp = {"query": "test question"}
+
+    # Record using explicit scenario matching what asserter will auto-hash to
+    sha = input_sha8(inp)
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario=sha) as r:
+        r.output = "test answer"
+
+    # Assert: set a.input inside the with block; asserter auto-hashes it
+    with AgentAsserter("agent", snapshot_dir=snap_dir,
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.input = inp
+        a.output = "test answer"
+    # No exception = pass
+
+
+def test_input_binding_warning_on_mismatch(tmp_path, capsys):
+    snap_dir = str(tmp_path)
+
+    # Record with explicit scenario and original input stored in snapshot
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="fixed") as r:
+        r.input_data = {"q": "original query"}
+        r.output = "result"
+
+    # Assert with same scenario but set a.input to a different value
+    with AgentAsserter("agent", snapshot_dir=snap_dir, scenario="fixed",
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.input = {"q": "completely different query"}
+        a.output = "result"
+
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.out
+    assert "input changed" in captured.out
+
+
+def test_input_binding_no_warning_when_inputs_match(tmp_path, capsys):
+    snap_dir = str(tmp_path)
+
+    with AgentRecorder("agent", snapshot_dir=snap_dir, scenario="fixed") as r:
+        r.input_data = {"q": "same query"}
+        r.output = "result"
+
+    with AgentAsserter("agent", snapshot_dir=snap_dir, scenario="fixed",
+                       semantic_threshold=0.0, llm_threshold=0.0,
+                       embed_fn=_identical_embed) as a:
+        a.input = {"q": "same query"}
+        a.output = "result"
+
+    captured = capsys.readouterr()
+    assert "WARNING" not in captured.out

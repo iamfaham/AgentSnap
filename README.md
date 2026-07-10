@@ -1,5 +1,10 @@
 # agentsnap
 
+[![CI](https://github.com/iamfaham/AgentSnap/actions/workflows/ci.yml/badge.svg)](https://github.com/iamfaham/AgentSnap/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/agentsnap)](https://pypi.org/project/agentsnap/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/agentsnap/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Deterministic snapshot testing for AI agents.
 
 `agentsnap` records your agent's LLM and tool calls during a **golden run** and produces a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across three dimensions:
@@ -11,6 +16,33 @@ Deterministic snapshot testing for AI agents.
 | **Semantic** | LLM responses and final output | Cosine similarity via `all-MiniLM-L6-v2`, or an LLM judge for higher accuracy |
 
 If any dimension drifts beyond its threshold, `agentsnap` raises `AgentRegressionError` with a structured diff report.
+
+---
+
+## Why agentsnap
+
+Agents regress silently. A prompt tweak, a model swap, a tool wired to the wrong argument — nothing throws an exception, nothing fails CI, and you find out in production when the agent quietly starts giving worse answers.
+
+`agentsnap` gives you two modes for two different jobs:
+
+- **Replay, on every PR** — recorded responses are replayed instead of calling a real API. Deterministic, zero cost, catches code regressions (prompt edits, broken tool wiring, changed call counts).
+- **Live, nightly** — real API calls against the current model, catching drift that only shows up when the model itself changes.
+
+A prompt edit caught by replay mode, no API call required:
+
+```
+Agent regression in 'demo_replay'
+=================================
+
+[ARGS] llm_call[0].messages:
+  messages: [{'content': 'Answer concisely: What is Python?', ...}] ->
+            [{'role': 'user', 'content': 'You are a pirate. Answer: ...'}]
+
+[SEMANTIC] llm_call[0]: 100% PASS
+[SEMANTIC] output: 100% PASS
+
+Failed checks: ['llm_requests']
+```
 
 ---
 
@@ -36,7 +68,7 @@ Asks you to choose a semantic comparison backend:
 | **[2] Offline embeddings** | Nothing — ~22 MB model download, runs anywhere | Any machine, no API key |
 | **[3] Local LLM judge** | *(coming soon)* | Strong local machine, no cloud |
 
-The wizard saves your choice to `pyproject.toml` and your API key (if any) to `.env`. Keys are never written to `pyproject.toml`.
+The wizard saves your choice to `pyproject.toml` and your API key (if any) to `.env`. Keys are never written to `pyproject.toml`. It also adds `__agent_snapshots__/.last_run/` to `.gitignore` (creating the file if needed) and offers to scaffold an example snapshot test at `tests/test_agentsnap_example.py`.
 
 ```bash
 agentsnap check   # verify your setup at any time
@@ -91,6 +123,75 @@ pytest
 # or enable PatchSet for every test in a session:
 pytest --agentsnap-instrument
 ```
+
+---
+
+## Replay vs live mode
+
+Every assert can run in one of two modes:
+
+| Mode | LLM calls | Catches | Best for |
+|------|-----------|---------|----------|
+| `live` (default) | Real API | Model/behavior drift | Nightly runs, pre-release |
+| `replay` | None — recorded responses are replayed | Code regressions: prompt edits, tool wiring, loop logic | Every PR / CI |
+
+In replay mode the recorded response for each LLM call is fed back to your
+agent — no API key, no cost, no flakes. The comparison flips to the **request
+side**: agentsnap fails the test if your code sends different prompts, makes a
+different number of LLM calls, or changes the tool sequence.
+
+```python
+# per test
+with AgentAsserter("my_agent", mode="replay") as a: ...
+
+# whole suite
+pytest --agentsnap-replay        # force replay
+pytest --agentsnap-live          # force live
+```
+
+```toml
+[tool.agentsnap]
+mode = "replay"   # make replay the project default
+```
+
+Tool calls still execute for real in replay mode. Pass `replay_tools=True` to
+stub them from the recording too (no side effects at all).
+
+Notes:
+- Replay needs snapshots recorded with agentsnap >= 0.2.0 (they include
+  `raw_response`). Older snapshots raise `SnapshotFormatError` — re-record
+  with `pytest --agentsnap-record`.
+- Replay currently supports Anthropic, OpenAI, Groq, and OpenRouter.
+  Other providers raise `ReplayError` — use live mode for those tests.
+- With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash
+  is not available because the snapshot is read before the test body runs).
+- If the replayed final output isn't byte-identical to the golden, scoring it
+  needs a semantic backend — install and configure the embeddings backend
+  (`pip install agentsnap[offline]`, then `agentsnap init` option 2) or configure a judge
+  (`AGENTSNAP_JUDGE_API_KEY`).
+- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) aren't intercepted yet —
+  replay's no-network guarantee currently covers sync clients only.
+
+### Streaming agents
+
+`AnthropicAdapter` and `OpenAIAdapter` tee `stream=True` calls (Groq and
+OpenRouter inherit this from `OpenAIAdapter`): chunks are forwarded to your
+agent unmodified while the assembled response is recorded for replay, with
+`raw_response={"__stream__": True, "chunks": [...]}`.
+
+In replay mode the recorded chunks are rebuilt into real SDK chunk/event
+objects and yielded back incrementally — your agent consumes them exactly
+like a live stream, with zero API calls. A recording made from a streaming
+call cannot replay as a non-streaming request (or vice versa) — that raises
+`ReplayError` with a clear "shape mismatch" message.
+
+Not yet supported: the `client.messages.stream()` context-manager helper,
+and async streams. Mistral still forces `stream=False` on every call. See
+`examples/demo_streaming.py` for a full runnable walkthrough.
+
+A stream that is never iterated and never closed is finalized automatically
+at recorder/asserter exit, but consuming or closing it promptly is still
+recommended so events appear in call order.
 
 ---
 
@@ -180,6 +281,7 @@ judge_model        = "openai/gpt-4o-mini"
 judge_base_url     = "https://openrouter.ai/api/v1"
 semantic_threshold = 0.92   # final agent output (strict)
 llm_threshold      = 0.75   # intermediate LLM responses (tolerant)
+mode               = "live"   # "live" (default) or "replay"
 ```
 
 These can also be set as pytest ini options:
@@ -282,10 +384,14 @@ def test_agent(snapshot):
 |------|-------------|
 | `--agentsnap-record` | Force re-record all snapshots, overwriting existing goldens |
 | `--agentsnap-instrument` | Auto-patch all installed LLM SDKs (zero-instrumentation mode) |
+| `--agentsnap-replay` | Force replay mode for every test in the session |
+| `--agentsnap-live` | Force live mode for every test in the session |
 
 ```bash
 pytest --agentsnap-record        # re-record everything
 pytest --agentsnap-instrument    # capture raw clients without adapters
+pytest --agentsnap-replay        # force replay mode
+pytest --agentsnap-live          # force live mode
 ```
 
 ### `agentsnap_instrument` fixture
@@ -317,9 +423,11 @@ def test_agent(snapshot, agentsnap_instrument):
 agentsnap init                                     # interactive setup wizard — choose backend and save config
 agentsnap check                                    # verify current backend is working (exits 0/1)
 agentsnap list                                     # list all snapshots
+agentsnap status                                   # pass/fail/stale status for every snapshot (CI-friendly, exits 0/1)
 agentsnap diff __agent_snapshots__/my_agent.json   # pretty-print a snapshot
 agentsnap update my_agent                          # show diff and approve last run as new golden
 agentsnap update my_agent --yes                    # approve without confirmation prompt
+agentsnap update --all                             # batch-approve every failing or new snapshot
 ```
 
 ---
@@ -328,12 +436,12 @@ agentsnap update my_agent --yes                    # approve without confirmatio
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "recorded_at": "2026-01-01T00:00:00+00:00",
   "model": "claude-haiku-4-5",
   "input": { "query": "What is Python?" },
   "trace": [
-    { "step": 0, "type": "llm_call", "messages": [...], "response": "...", "tokens": 350 },
+    { "step": 0, "type": "llm_call", "messages": [...], "response": "...", "tokens": 350, "raw_response": {...} },
     { "step": 1, "type": "tool_call", "name": "search", "args": {"query": "Python"}, "result": "..." }
   ],
   "output": "Python is a high-level programming language..."
@@ -391,6 +499,8 @@ agentsnap update my_agent
 git add __agent_snapshots__/my_agent.json
 git commit -m "approve: updated golden after Sonnet upgrade"
 ```
+
+For multiple failures at once, run `agentsnap status` to see what changed, then `agentsnap update --all` to batch-approve every failing or new snapshot in one pass.
 
 ---
 

@@ -1,0 +1,91 @@
+name: Bug report
+description: Report a problem with agentsnap
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much detail as you can.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal repro
+      description: >
+        Minimal code needed to reproduce the issue. Include a relevant snapshot JSON
+        (from `__agent_snapshots__/`) if the bug involves diffing, recording, or replay.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened. Include the full error message / traceback if there is one.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: agentsnap-version
+    attributes:
+      label: agentsnap version
+      description: Output of `pip show agentsnap` or the version pinned in your `pyproject.toml`.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: provider-sdk
+    attributes:
+      label: Provider SDK + version
+      description: e.g. `openai==1.40.0`, `anthropic==0.34.0`
+      placeholder: "openai==1.40.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.11.9"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: Was this running in live mode (real API calls) or replay mode (recorded responses)?
+      options:
+        - live
+        - replay
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else that might help — OS, CI vs local, `pyproject.toml` `[tool.agentsnap]` config, etc.
+    validations:
+      required: false

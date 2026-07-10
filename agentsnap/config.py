@@ -62,10 +62,12 @@ _PROVIDER_KEY_MAP: list[tuple[str, str]] = [
 # -- Built-in defaults ---------------------------------------------------------
 
 DEFAULTS: dict[str, Any] = {
-    "judge_model":        "openai/gpt-4o-mini",
-    "judge_base_url":     "https://openrouter.ai/api/v1",
-    "semantic_threshold": 0.92,
-    "llm_threshold":      0.75,
+    "judge_model":           "openai/gpt-4o-mini",
+    "judge_base_url":        "https://openrouter.ai/api/v1",
+    "semantic_threshold":    0.92,
+    "llm_threshold":         0.75,
+    "structural_tolerance":  0,
+    "mode":                  "live",
 }
 
 

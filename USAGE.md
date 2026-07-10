@@ -13,14 +13,15 @@ This guide walks through everything you need to use agentsnap effectively — fr
 5. [Choosing an instrumentation style](#choosing-an-instrumentation-style)
 6. [Zero-instrumentation with PatchSet](#zero-instrumentation-with-patchset)
 7. [Using adapters (alternative)](#using-adapters-alternative)
-8. [pytest integration](#pytest-integration)
-9. [LangGraph](#langgraph)
-10. [Reviewing and approving changes](#reviewing-and-approving-changes)
-11. [Configuration](#configuration)
-12. [Understanding diff results](#understanding-diff-results)
-13. [Tuning thresholds](#tuning-thresholds)
-14. [LLM judge](#llm-judge)
-15. [CI setup](#ci-setup)
+8. [Replay vs live mode](#replay-vs-live-mode)
+9. [pytest integration](#pytest-integration)
+10. [LangGraph](#langgraph)
+11. [Reviewing and approving changes](#reviewing-and-approving-changes)
+12. [Configuration](#configuration)
+13. [Understanding diff results](#understanding-diff-results)
+14. [Tuning thresholds](#tuning-thresholds)
+15. [LLM judge](#llm-judge)
+16. [CI setup](#ci-setup)
 
 ---
 
@@ -80,6 +81,8 @@ Calls a small LLM to score whether two responses are semantically equivalent. Mo
 - OpenAI, Anthropic, or any OpenAI-compatible provider
 
 The wizard saves your key to `.env` — never to `pyproject.toml` (which gets committed to git).
+
+After you make your backend choice, `agentsnap init` also scaffolds your project: it adds `__agent_snapshots__/.last_run/` to `.gitignore` (creating the file if it doesn't exist, idempotent on repeat runs), and offers to write an example snapshot test to `tests/test_agentsnap_example.py` (opt-in, skipped by default so pytest stays green until you replace the fake agent).
 
 **[2] Offline embeddings — all-MiniLM-L6-v2**
 Uses cosine similarity between sentence embeddings. No API key, no internet after first use. The 22 MB model downloads once and is cached permanently. Runs on any machine including budget cloud VMs (CPU only, ~500 MB RAM).
@@ -263,6 +266,66 @@ If the trace matches the golden snapshot, the context manager exits cleanly. If 
 
 ---
 
+## Replay vs live mode
+
+Every assert can run in one of two modes:
+
+| Mode | LLM calls | Catches | Best for |
+|------|-----------|---------|----------|
+| `live` (default) | Real API | Model/behavior drift | Nightly runs, pre-release |
+| `replay` | None — recorded responses are replayed | Code regressions: prompt edits, tool wiring, loop logic | Every PR / CI |
+
+In replay mode the recorded response for each LLM call is fed back to your agent — no API key, no cost, no flakes. The comparison flips to the **request side**: agentsnap fails the test if your code sends different prompts, makes a different number of LLM calls, or changes the tool sequence.
+
+```python
+from agentsnap import AgentAsserter
+
+# per test
+with AgentAsserter("my_agent", mode="replay") as a:
+    a.output = my_agent(client, search_tool, "What is Python?")
+```
+
+```bash
+# whole suite
+pytest --agentsnap-replay        # force replay
+pytest --agentsnap-live          # force live
+```
+
+```toml
+[tool.agentsnap]
+mode = "replay"   # make replay the project default
+```
+
+Tool calls still execute for real in replay mode. Pass `replay_tools=True` to stub them from the recording too (no side effects at all):
+
+```python
+with AgentAsserter("my_agent", mode="replay", replay_tools=True) as a:
+    a.output = my_agent(client, search_tool, "What is Python?")
+```
+
+Notes:
+- Replay needs snapshots recorded with agentsnap >= 0.2.0 (they include `raw_response`). Older snapshots raise `SnapshotFormatError` — re-record with `pytest --agentsnap-record`.
+- Replay currently supports Anthropic, OpenAI, Groq, and OpenRouter. Other providers raise `ReplayError` — use live mode for those tests.
+- With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash is not available because the snapshot is read before the test body runs).
+- If the replayed final output isn't byte-identical to the golden, scoring it needs a semantic backend — install and configure the embeddings backend (`pip install agentsnap[offline]`, then `agentsnap init` option 2) or configure a judge (`AGENTSNAP_JUDGE_API_KEY`).
+- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) aren't intercepted yet — replay's no-network guarantee currently covers sync clients only.
+
+See `examples/demo_replay.py` for a full runnable walkthrough: record a golden run, replay it with the network disabled to prove zero live calls, then watch replay catch a prompt edit instantly.
+
+### Streaming agents
+
+`AnthropicAdapter` and `OpenAIAdapter` tee `stream=True` calls instead of forcing non-streaming (Groq and OpenRouter inherit this since they subclass `OpenAIAdapter`). Chunks flow through to your agent unmodified while the assembled text/tokens are recorded, with `raw_response={"__stream__": True, "chunks": [...]}`.
+
+Replay rebuilds the recorded chunks into real SDK chunk/event objects and yields them back incrementally — the agent consumes them exactly like a live stream, with zero API calls. Replaying a streaming recording against a non-streaming request (or vice versa) raises `ReplayError` with a "shape mismatch" message.
+
+Not yet supported: the `client.messages.stream()` context-manager helper, and async streams. Mistral still forces `stream=False` on every call.
+
+A stream that is never iterated and never closed is finalized automatically at recorder/asserter exit, but consuming or closing it promptly is still recommended so events appear in call order.
+
+See `examples/demo_streaming.py` for a full runnable walkthrough of recording and replaying a streaming agent.
+
+---
+
 ## pytest integration
 
 ### The `snapshot` fixture
@@ -309,6 +372,12 @@ pytest --agentsnap-record
 
 # Zero-instrumentation: patch all SDK clients automatically
 pytest --agentsnap-instrument
+
+# Force replay mode for every test in the session
+pytest --agentsnap-replay
+
+# Force live mode for every test in the session
+pytest --agentsnap-live
 ```
 
 ### Snapshot directory
@@ -362,11 +431,15 @@ git add __agent_snapshots__/my_agent.json
 git commit -m "approve: updated golden after model upgrade"
 ```
 
+For multiple failures at once, run `agentsnap status` first to see what changed across every snapshot, then `agentsnap update --all` to batch-approve every failing or new snapshot in one pass (shows a diff per file, then asks for one confirmation for the whole batch, unless `--yes` is passed).
+
 Other useful CLI commands:
 
 ```bash
 agentsnap list                                     # list all snapshot files
+agentsnap status                                   # pass/fail/stale status for every snapshot (CI-friendly, exits 0/1)
 agentsnap diff __agent_snapshots__/my_agent.json   # pretty-print a snapshot
+agentsnap update --all                             # batch-approve every failing or new snapshot
 ```
 
 ---
@@ -381,6 +454,7 @@ judge_model        = "openai/gpt-4o-mini"          # model used for LLM judge
 judge_base_url     = "https://openrouter.ai/api/v1" # provider for LLM judge
 semantic_threshold = 0.92                           # output similarity threshold
 llm_threshold      = 0.75                           # intermediate LLM similarity threshold
+mode               = "live"                         # "live" (default) or "replay"
 ```
 
 ### Environment variables
@@ -398,21 +472,34 @@ llm_threshold      = 0.75                           # intermediate LLM similarit
 
 ## Understanding diff results
 
-When `AgentRegressionError` is raised, check `e.diff_report`:
+When `AgentRegressionError` is raised, `str(e)` (or just letting pytest print it) gives a formatted report with percentage scores:
+
+```
+Agent regression detected in 'my_agent'
+
+-- Diff Report ------------------------------------------
+  [STRUCTURAL] 50% tool match  (Tool sequence changed: ['lookup'] -> ['lookup', 'summarize'])
+  [SEMANTIC] llm_call[0]: 91% (PASS)
+  [SEMANTIC] output: 71% (FAIL)  "responses differ in topic"
+  Failed checks: ['structural', 'semantic:output']
+---------------------------------------------------------
+```
+
+For programmatic access, inspect `e.diff_report` directly:
 
 ```python
 try:
     with AgentAsserter("my_agent") as a:
         a.output = my_agent(...)
 except AgentRegressionError as e:
-    print(e.diff_report.failed_checks)      # list of what failed
-    print(e.diff_report.structural_diff)    # tool sequence diff
+    print(e.diff_report.failed_checks)      # ['structural', 'semantic:output']
+    print(e.diff_report.structural_diff)    # tool sequence diff string
     print(e.diff_report.argument_diffs)     # per-tool argument diffs
-    print(e.diff_report.semantic_scores)    # similarity scores by step
+    print(e.diff_report.semantic_scores)    # {'output': 0.71, 'llm_call[0]': 0.91}
     print(e.diff_report.semantic_reasons)   # LLM judge explanations (if enabled)
 ```
 
-`failed_checks` is a list of strings like `['structural']`, `['semantic:output']`, or `['semantic:llm_call[0]']`. Each entry tells you exactly which layer and which step failed.
+`failed_checks` contains strings like `'structural'`, `'semantic:output'`, or `'semantic:llm_call[0]'` — one entry per layer and step that failed.
 
 ---
 
@@ -452,7 +539,7 @@ llm_threshold      = 0.80
 
 ## LLM judge
 
-Without any setup, agentsnap falls back to cosine similarity on embeddings (`all-MiniLM-L6-v2`, runs offline). The setup wizard defaults to the LLM judge because it gives more accurate results for factual agents — embeddings are the fallback when no API key is configured.
+agentsnap requires a configured backend before it can compare responses. Run `agentsnap init` once per project to choose between LLM judge and offline embeddings. The wizard defaults to the LLM judge because it gives more accurate results for factual agents — choose offline embeddings if you have no API key or need air-gapped operation.
 
 The easiest way to configure the LLM judge is via the setup wizard:
 
@@ -510,4 +597,4 @@ jobs:
           AGENTSNAP_JUDGE_API_KEY: ${{ secrets.AGENTSNAP_JUDGE_API_KEY }}
 ```
 
-If `AGENTSNAP_JUDGE_API_KEY` is not set, agentsnap falls back to offline embedding comparison — CI works without any secrets.
+If `AGENTSNAP_JUDGE_API_KEY` is not set, agentsnap uses offline embedding comparison — provided you ran `agentsnap init` with option [2] (offline embeddings) and committed the resulting `pyproject.toml`. CI works without any secrets once that setup is done.

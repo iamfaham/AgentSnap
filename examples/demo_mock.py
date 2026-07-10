@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -72,6 +73,24 @@ class _CohereResponse:
 
 class _MistralResponse:
     def __init__(self, text): self.choices = [_Choice(text)]; self.usage = _Usage()
+
+
+# ---------------------------------------------------------------------------
+# Deterministic offline embedding stub
+# ---------------------------------------------------------------------------
+#
+# The demo runs without sentence-transformers or any API key. This hashed
+# bag-of-words embedding is deterministic: identical texts score 1.0 and
+# texts with different words score low -- enough to demo pass/fail flows.
+
+def _demo_embed(texts):
+    vecs = []
+    for text in texts:
+        v = [0.0] * 256
+        for word in text.lower().split():
+            v[zlib.crc32(word.encode()) % 256] += 1.0
+        vecs.append(v)
+    return vecs
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +203,13 @@ def patchset_demo(snapshot_dir: str) -> None:
     print("  Your agent code stays completely unchanged.")
     print("  Just wrap your tests with PatchSet.\n")
 
+    # Clean slate so Step 1 always records a fresh golden
+    import shutil as _shutil
+    from agentsnap.core.snapshot import snapshot_path as _snap_path, last_run_path as _lr_path
+    for _p in [_snap_path("demo_patchset", snapshot_dir), _lr_path("demo_patchset", snapshot_dir)]:
+        if _p.exists():
+            _p.unlink()
+
     # ----- Your agent function (zero agentsnap imports) ----------------------
     def my_agent(query: str) -> str:
         """Simulates a user's agent -- raw SDK, no agentsnap code."""
@@ -210,7 +236,7 @@ def patchset_demo(snapshot_dir: str) -> None:
     subheader("Step 1  First run -- no snapshot yet, golden recorded automatically")
     with mock.patch.object(_AnthMessages, "create", return_value=_FakeResp()):
         with PatchSet():
-            with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+            with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
                 a.output = my_agent("What is agentsnap?")
     print(f"  Golden snapshot written: {name}.json")
 
@@ -218,7 +244,7 @@ def patchset_demo(snapshot_dir: str) -> None:
     subheader("Step 2  Identical run -- expect PASS with similarity scores")
     with mock.patch.object(_AnthMessages, "create", return_value=_FakeResp()):
         with PatchSet():
-            with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+            with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
                 a.output = my_agent("What is agentsnap?")
 
     # -- Step 3: Regression -- LLM response drifted ---------------------------
@@ -235,7 +261,7 @@ def patchset_demo(snapshot_dir: str) -> None:
     try:
         with mock.patch.object(_AnthMessages, "create", return_value=_DriftedResp()):
             with PatchSet():
-                with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+                with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
                     a.output = "The agent now produces a different final answer."
     except AgentRegressionError as e:
         print(str(e))  # full report: percentages, PASS/FAIL per step
@@ -253,7 +279,7 @@ def patchset_demo(snapshot_dir: str) -> None:
     subheader("Step 5  Re-run after approval -- expect PASS with new baseline")
     with mock.patch.object(_AnthMessages, "create", return_value=_DriftedResp()):
         with PatchSet():
-            with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+            with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
                 a.output = "The agent now produces a different final answer."
 
 
@@ -273,12 +299,12 @@ def run_adapter_demo(provider: str, make_client, call_llm, snapshot_dir: str) ->
     print(f"[{provider}] snapshot written -> {name}.json")
 
     print(f"[{provider}] asserting (identical run)...")
-    with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
         a.output = call_llm(make_client(), ToolAdapter(lookup, name="lookup"), "What is agentsnap?")
 
     print(f"[{provider}] simulating regression (drifted output)...")
     try:
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
             a.output = "drifted output -- agent changed its answer"
     except AgentRegressionError as e:
         print(f"[{provider}] caught: {e.diff_report.failed_checks}")
@@ -359,13 +385,13 @@ def langgraph_demo(snapshot_dir: str) -> None:
     print(f"[langgraph] snapshot written -> {name}.json")
 
     print("[langgraph] asserting (identical run)...")
-    with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
         a.output = graph.invoke("What is agentsnap?")
 
     print("[langgraph] simulating regression (different node output)...")
     drifted = LangGraphAdapter(_MockLangGraph("Completely different answer.", tool_name="lookup"))
     try:
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=_demo_embed) as a:
             a.output = drifted.invoke("What is agentsnap?")
     except AgentRegressionError as e:
         print(f"[langgraph] caught: {e.diff_report.failed_checks}")

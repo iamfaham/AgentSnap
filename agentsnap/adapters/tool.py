@@ -17,6 +17,19 @@ class ToolAdapter:
         if acc is None:
             return self._func(**kwargs)
 
+        if acc.replay is not None and acc.replay.replay_tools:
+            event = acc.replay.next_tool_event(self._name)
+            result = event.get("result", "")
+            acc.push(
+                {
+                    "type": "tool_call",
+                    "name": self._name,
+                    "args": kwargs,
+                    "result": result,
+                }
+            )
+            return result
+
         result = self._func(**kwargs)
         acc.push(
             {

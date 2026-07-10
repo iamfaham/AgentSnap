@@ -12,6 +12,17 @@ from tests.fixtures.mock_agents import MockAnthropicClient, MockAnthropicRespons
 
 import numpy as np
 
+pytest_plugins = ["pytester"]
+
+
+@pytest.fixture(autouse=True)
+def _clean_judge_env(monkeypatch):
+    # Earlier tests' config.load() can leak a real .env judge key into
+    # os.environ; pin the no-judge code path regardless of the dev machine.
+    monkeypatch.delenv("AGENTSNAP_JUDGE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
 _DIM = 8
 
 def _identical_embed(texts):
@@ -99,3 +110,115 @@ def test_force_record_false_asserts_when_snapshot_exists(tmp_path):
         client = _make_client()
         tool = ToolAdapter(_search, name="search")
         s.output = SimpleToolAgent(client, tool, "hello")
+
+
+def test_config_default_mode_is_live():
+    from agentsnap.config import DEFAULTS
+    assert DEFAULTS["mode"] == "live"
+
+
+def test_snapshot_fixture_passes_mode_to_asserter(tmp_path):
+    from agentsnap.pytest_plugin import SnapshotFixture
+
+    fixture = SnapshotFixture(
+        snapshot_dir=str(tmp_path),
+        semantic_threshold=0.9,
+        llm_threshold=0.7,
+        judge=None,
+        mode="replay",
+    )
+    asserter = fixture.assert_agent("t")
+    assert asserter.mode == "replay"
+
+
+def test_per_test_mode_override_wins(tmp_path):
+    from agentsnap.pytest_plugin import SnapshotFixture
+
+    fixture = SnapshotFixture(
+        snapshot_dir=str(tmp_path),
+        semantic_threshold=0.9,
+        llm_threshold=0.7,
+        judge=None,
+        mode="replay",
+    )
+    asserter = fixture.assert_agent("t", mode="live")
+    assert asserter.mode == "live"
+
+
+def test_replay_tools_passthrough(tmp_path):
+    from agentsnap.pytest_plugin import SnapshotFixture
+
+    fixture = SnapshotFixture(
+        snapshot_dir=str(tmp_path),
+        semantic_threshold=0.9,
+        llm_threshold=0.7,
+        judge=None,
+    )
+    asserter = fixture.assert_agent("t", mode="replay", replay_tools=True)
+    assert asserter.replay_tools is True
+
+
+# -- Pytester end-to-end: replay flag / mode resolution -----------------------
+#
+# These drive the `snapshot` fixture through a real (in-process) pytest run so
+# the flag/ini resolution chain in pytest_plugin.py is exercised end to end,
+# not just unit-tested against SnapshotFixture directly. The mini agent under
+# test makes zero LLM calls, so no SDKs or embedding backends are required.
+
+_STUB_TEST_SOURCE = """
+    def test_agent(snapshot):
+        with snapshot.run("flag_e2e") as s:
+            s.output = "constant output"
+    """
+
+
+def _last_run_mode(pytester: pytest.Pytester) -> str:
+    last_run_file = pytester.path / "__agent_snapshots__" / ".last_run" / "flag_e2e.json"
+    data = json.loads(last_run_file.read_text(encoding="utf-8"))
+    return data["result"]["mode"]
+
+
+def test_pytester_record_then_replay_flag(pytester: pytest.Pytester) -> None:
+    """Record on first run, then --agentsnap-replay asserts and last_run records mode='replay'."""
+    pytester.makeconftest("")  # pins snapshot dir discovery to this pytester tmp dir
+    pytester.makepyfile(test_flag_e2e=_STUB_TEST_SOURCE)
+
+    record_result = pytester.runpytest()
+    record_result.assert_outcomes(passed=1)
+
+    last_run_file = pytester.path / "__agent_snapshots__" / ".last_run" / "flag_e2e.json"
+    assert not last_run_file.exists(), "record mode should not write a .last_run file"
+
+    replay_result = pytester.runpytest("--agentsnap-replay")
+    replay_result.assert_outcomes(passed=1)
+    assert _last_run_mode(pytester) == "replay"
+
+
+def test_pytester_replay_and_live_flags_live_wins(pytester: pytest.Pytester) -> None:
+    """--agentsnap-replay together with --agentsnap-live resolves to live (live always wins)."""
+    pytester.makeconftest("")
+    pytester.makepyfile(test_flag_e2e=_STUB_TEST_SOURCE)
+
+    pytester.runpytest().assert_outcomes(passed=1)  # record
+
+    result = pytester.runpytest("--agentsnap-replay", "--agentsnap-live")
+    result.assert_outcomes(passed=1)
+    assert _last_run_mode(pytester) == "live"
+
+
+def test_pytester_ini_mode_replay_resolves_without_flags(pytester: pytest.Pytester) -> None:
+    """agentsnap_mode = replay in ini resolves to replay mode with no CLI flags."""
+    pytester.makeconftest("")
+    pytester.makeini(
+        """
+        [pytest]
+        agentsnap_mode = replay
+        """
+    )
+    pytester.makepyfile(test_flag_e2e=_STUB_TEST_SOURCE)
+
+    pytester.runpytest().assert_outcomes(passed=1)  # record
+
+    result = pytester.runpytest()  # no flags; ini alone should resolve to replay
+    result.assert_outcomes(passed=1)
+    assert _last_run_mode(pytester) == "replay"

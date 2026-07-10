@@ -2,7 +2,20 @@ from __future__ import annotations
 
 import warnings
 
+from agentsnap.adapters.anthropic import (
+    AnthropicRecordingStream,
+    dump_raw as _anthropic_dump_raw,
+    reconstruct_event as _anthropic_reconstruct_event,
+    replay_stream as _anthropic_replay_stream,
+)
+from agentsnap.adapters.openai import (
+    OpenAIRecordingStream,
+    dump_raw as _openai_dump_raw,
+    reconstruct_event as _openai_reconstruct_event,
+    replay_stream as _openai_replay_stream,
+)
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
 
 
 # ── Safe apply helper ──────────────────────────────────────────────────────────
@@ -27,6 +40,36 @@ def _apply_anthropic() -> list[tuple]:
         if acc is None:
             return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            acc.push(
+                {
+                    "type": "llm_call",
+                    "messages": messages,
+                    "response": event.get("response", ""),
+                    "tokens": event.get("tokens", 0),
+                    "raw_response": event.get("raw_response"),
+                }
+            )
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return _anthropic_replay_stream(raw["chunks"])
+            return _anthropic_reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = original(self, *args, **kwargs)
+            return AnthropicRecordingStream(response, messages, acc)
+
         response = original(self, *args, **kwargs)
         text = ""
         tokens = 0
@@ -39,7 +82,15 @@ def _apply_anthropic() -> list[tuple]:
                 getattr(response.usage, "input_tokens", 0)
                 + getattr(response.usage, "output_tokens", 0)
             )
-        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": text,
+                "tokens": tokens,
+                "raw_response": _anthropic_dump_raw(response),
+            }
+        )
         return response
 
     Messages.create = _interceptor
@@ -58,6 +109,36 @@ def _apply_openai() -> list[tuple]:
         if acc is None:
             return original(self, *args, **kwargs)
         messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            acc.push(
+                {
+                    "type": "llm_call",
+                    "messages": messages,
+                    "response": event.get("response", ""),
+                    "tokens": event.get("tokens", 0),
+                    "raw_response": event.get("raw_response"),
+                }
+            )
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return _openai_replay_stream(raw["chunks"])
+            return _openai_reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = original(self, *args, **kwargs)
+            return OpenAIRecordingStream(response, messages, acc)
+
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)
         text = ""
@@ -66,7 +147,15 @@ def _apply_openai() -> list[tuple]:
             text = response.choices[0].message.content or ""
         if hasattr(response, "usage"):
             tokens = getattr(response.usage, "total_tokens", 0)
-        acc.push({"type": "llm_call", "messages": messages, "response": text, "tokens": tokens})
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": text,
+                "tokens": tokens,
+                "raw_response": _openai_dump_raw(response),
+            }
+        )
         return response
 
     Completions.create = _interceptor
@@ -84,6 +173,11 @@ def _apply_gemini() -> list[tuple]:
         acc = TraceAccumulator.current()
         if acc is None:
             return original(self, model=model, contents=contents, **kwargs)
+        if acc.replay is not None:
+            raise ReplayError(
+                "replay mode does not yet support Gemini; "
+                "use mode='live' for this test."
+            )
         if isinstance(contents, str):
             messages = [{"role": "user", "content": contents}]
         elif isinstance(contents, list):
@@ -120,6 +214,11 @@ def _apply_cohere() -> list[tuple]:
         acc = TraceAccumulator.current()
         if acc is None:
             return original(self, *args, **kwargs)
+        if acc.replay is not None:
+            raise ReplayError(
+                "replay mode does not yet support Cohere; "
+                "use mode='live' for this test."
+            )
         messages = kwargs.get("messages", [])
         response = original(self, *args, **kwargs)
         text = ""
@@ -164,6 +263,11 @@ def _apply_mistral() -> list[tuple]:
         acc = TraceAccumulator.current()
         if acc is None:
             return original(self, *args, **kwargs)
+        if acc.replay is not None:
+            raise ReplayError(
+                "replay mode does not yet support Mistral; "
+                "use mode='live' for this test."
+            )
         messages = kwargs.get("messages", [])
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)

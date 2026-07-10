@@ -1,6 +1,153 @@
 from __future__ import annotations
 
 from agentsnap.core.recorder import TraceAccumulator
+from agentsnap.exceptions import ReplayError
+
+
+def dump_raw(response) -> dict | None:
+    """Serialize a provider response for replay. None if the object can't dump."""
+    dump = getattr(response, "model_dump", None)
+    if dump is None:
+        return None
+    try:
+        return dump(mode="json")
+    except TypeError:
+        try:
+            return dump()
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def reconstruct(raw: dict):
+    """Rebuild an openai ChatCompletion object from a recorded raw_response dict."""
+    from openai.types.chat import ChatCompletion
+
+    return ChatCompletion.model_validate(raw)
+
+
+def reconstruct_event(event: dict):
+    """Rebuild the recorded response for a replayed event, with a clear error on failure."""
+    try:
+        return reconstruct(event["raw_response"])
+    except ReplayError:
+        raise
+    except Exception as e:
+        raise ReplayError(
+            f"Failed to reconstruct the recorded response for llm_call step "
+            f"{event.get('step', '?')} — the snapshot may be corrupt or recorded "
+            f"under a different SDK version ({e}). "
+            "Re-record the golden: pytest --agentsnap-record"
+        ) from e
+
+
+def replay_stream(chunk_dicts):
+    """Rebuild a recorded stream as a generator of real openai ChatCompletionChunk objects."""
+    from openai.types.chat import ChatCompletionChunk
+
+    chunks = []
+    for i, raw in enumerate(chunk_dicts):
+        try:
+            chunks.append(ChatCompletionChunk.model_validate(raw))
+        except Exception as e:
+            raise ReplayError(
+                f"Failed to reconstruct recorded stream chunk {i} — the snapshot may "
+                f"be corrupt or recorded under a different SDK version ({e}). "
+                "Re-record the golden: pytest --agentsnap-record"
+            ) from e
+
+    return _ReplayedStream(chunks)
+
+
+class _ReplayedStream:
+    """Replayed stream: iterable + context manager, mirroring the SDK Stream surface."""
+
+    def __init__(self, items) -> None:
+        self._items = items
+
+    def __iter__(self):
+        yield from self._items
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+
+class OpenAIRecordingStream:
+    """Tees a streaming response: yields chunks unchanged, records the assembled call."""
+
+    def __init__(self, inner, messages, acc) -> None:
+        self._inner = inner
+        self._messages = messages
+        self._acc = acc
+        self._chunks: list = []
+        self._text: list[str] = []
+        self._tokens = 0
+        self._recorded = False
+        acc.register_stream(self)
+
+    def __iter__(self):
+        # finally covers natural exhaustion, consumer break (GeneratorExit),
+        # and mid-stream exceptions — the partial call is always recorded.
+        # Note: record mode pushes the llm_call at stream exhaustion/close, while
+        # replay pushes it at create() time — with a single active stream the
+        # relative order of llm_call vs interleaved tool_call events can differ
+        # between record and replay. Structural diff (tool names) and
+        # llm_request_diffs (llm order) are unaffected.
+        try:
+            for chunk in self._inner:
+                self._capture(chunk)
+                yield chunk
+        finally:
+            self._record()
+
+    def _capture(self, chunk) -> None:
+        self._chunks.append(chunk)
+        if getattr(chunk, "choices", None):
+            delta = chunk.choices[0].delta
+            if getattr(delta, "content", None):
+                self._text.append(delta.content)
+        usage = getattr(chunk, "usage", None)
+        if usage is not None:
+            self._tokens = getattr(usage, "total_tokens", 0) or 0
+
+    def _record(self) -> None:
+        if self._recorded:
+            return
+        self._recorded = True
+        self._acc.push(
+            {
+                "type": "llm_call",
+                "messages": self._messages,
+                "response": "".join(self._text),
+                "tokens": self._tokens,
+                "raw_response": {
+                    "__stream__": True,
+                    "chunks": [dump_raw(c) for c in self._chunks],
+                },
+            }
+        )
+
+    def close(self) -> None:
+        try:
+            self._inner.close()
+        finally:
+            self._record()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 class _CompletionsProxy:
@@ -13,6 +160,36 @@ class _CompletionsProxy:
             return self._original.create(**kwargs)
 
         messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            acc.push(
+                {
+                    "type": "llm_call",
+                    "messages": messages,
+                    "response": event.get("response", ""),
+                    "tokens": event.get("tokens", 0),
+                    "raw_response": event.get("raw_response"),
+                }
+            )
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return replay_stream(raw["chunks"])
+            return reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = self._original.create(**kwargs)
+            return OpenAIRecordingStream(response, messages, acc)
+
         # Force non-streaming so we always get a complete ChatCompletion object.
         # Streaming responses expose deltas, not the full message content.
         kwargs["stream"] = False
@@ -32,6 +209,7 @@ class _CompletionsProxy:
                 "messages": messages,
                 "response": response_text,
                 "tokens": tokens,
+                "raw_response": dump_raw(response),
             }
         )
         return response

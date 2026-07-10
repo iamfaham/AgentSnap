@@ -512,3 +512,20 @@ def test_openai_replay_stream_request_against_stream_recording_returns_real_chun
         assert [c.choices[0].delta.content for c in chunks[:2]] == ["Hello, ", "world!"]
     finally:
         _accumulator_var.set(None)
+
+
+# ── replay_stream: context-manager protocol ────────────────────────────────────
+
+def test_openai_replay_stream_supports_context_manager_protocol():
+    with openai_replay_stream(_openai_chunk_dicts()) as s:
+        chunks = list(s)
+        assert [c.choices[0].delta.content for c in chunks[:2]] == ["Hello, ", "world!"]
+    s.close()  # closing after the with-block is a harmless no-op
+
+
+def test_anthropic_replay_stream_supports_context_manager_protocol():
+    with anthropic_replay_stream(_anthropic_stream_event_dicts()) as s:
+        events = list(s)
+        assert events[1].delta.text == "Hello, "
+        assert events[2].delta.text == "world!"
+    s.close()  # closing after the with-block is a harmless no-op

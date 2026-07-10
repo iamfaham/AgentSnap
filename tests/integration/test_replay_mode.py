@@ -1,6 +1,7 @@
 import pytest
 
 from agentsnap.adapters.anthropic import AnthropicAdapter
+from agentsnap.adapters.openai import OpenAIAdapter
 from agentsnap.adapters.tool import ToolAdapter
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
@@ -129,6 +130,107 @@ class ExplodingMessages:
 
 class ExplodingClient:
     messages = ExplodingMessages()
+
+
+# ── OpenAI streaming round trip: record streamed chunks, replay as real SDK objects ──
+
+class FakeOpenAIChunk:
+    def __init__(self, content=None, finish_reason=None):
+        self.choices = [
+            type(
+                "Choice",
+                (),
+                {"index": 0, "delta": type("Delta", (), {"content": content})(), "finish_reason": finish_reason},
+            )()
+        ]
+
+    def model_dump(self, mode="json"):
+        return {
+            "id": "x", "object": "chat.completion.chunk", "created": 1, "model": "m",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": self.choices[0].delta.content},
+                    "finish_reason": self.choices[0].finish_reason,
+                }
+            ],
+        }
+
+
+def _openai_chunks(text_parts):
+    chunks = [FakeOpenAIChunk(part) for part in text_parts]
+    chunks.append(FakeOpenAIChunk(None, finish_reason="stop"))
+    return chunks
+
+
+class FakeOpenAIStream:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def __iter__(self):
+        return iter(self._chunks)
+
+    def close(self):
+        pass
+
+
+class OpenAIStreamingCompletions:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def create(self, **kwargs):
+        assert kwargs.get("stream") is True
+        return FakeOpenAIStream(self._chunks)
+
+
+class OpenAIStreamingChat:
+    def __init__(self, chunks):
+        self.completions = OpenAIStreamingCompletions(chunks)
+
+
+class OpenAIStreamingClient:
+    def __init__(self, chunks):
+        self.chat = OpenAIStreamingChat(chunks)
+
+
+def OpenAIStreamingAgent(client, input_text: str) -> str:
+    """Streams one LLM call and joins the delta content as its output."""
+    stream = client.chat.completions.create(
+        model="m",
+        messages=[{"role": "user", "content": input_text}],
+        stream=True,
+    )
+    parts = []
+    for chunk in stream:
+        content = chunk.choices[0].delta.content
+        if content:
+            parts.append(content)
+    return "".join(parts)
+
+
+class ExplodingOpenAICompletions:
+    def create(self, **kwargs):
+        raise AssertionError("live API called during replay")
+
+
+class ExplodingOpenAIChat:
+    completions = ExplodingOpenAICompletions()
+
+
+class ExplodingOpenAIClient:
+    chat = ExplodingOpenAIChat()
+
+
+def test_openai_replay_streams_recorded_chunks_as_real_sdk_objects_without_live_call(tmp_path):
+    client = OpenAIAdapter(OpenAIStreamingClient(_openai_chunks(["Hello, ", "world!"])))
+    with AgentRecorder("openai_replay_stream_it", snapshot_dir=str(tmp_path)) as rec:
+        rec.output = OpenAIStreamingAgent(client, "hello")
+    assert rec.output == "Hello, world!"
+
+    replay_client = OpenAIAdapter(ExplodingOpenAIClient())
+    with AgentAsserter("openai_replay_stream_it", snapshot_dir=str(tmp_path), mode="replay") as a:
+        a.output = OpenAIStreamingAgent(replay_client, "hello")
+    assert a.output == "Hello, world!"
 
 
 def _record_golden(tmp_path, text="the answer"):

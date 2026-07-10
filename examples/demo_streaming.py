@@ -3,9 +3,10 @@ demo_streaming.py -- Streaming agents: record by teeing, replay from recorded ch
 
   python examples/demo_streaming.py
 
-No API keys required. Uses a fake Anthropic-shaped streaming client whose
-events are valid `anthropic.types.RawMessageStreamEvent` dicts, so the
-recorded snapshot can be replayed back into real SDK objects.
+No API keys required, but the `anthropic` package must be installed (replay
+reconstructs real SDK event objects). Uses a fake Anthropic-shaped streaming
+client whose events are valid `anthropic.types.RawMessageStreamEvent` dicts,
+so the recorded snapshot can be replayed back into real SDK objects.
 
 The journey:
   1. Record an agent that consumes a live `stream=True` call. The adapter

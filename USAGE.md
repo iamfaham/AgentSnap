@@ -316,6 +316,8 @@ Replay rebuilds the recorded chunks into real SDK chunk/event objects and yields
 
 Not yet supported: the `client.messages.stream()` context-manager helper, and async streams. Mistral still forces `stream=False` on every call.
 
+A stream that is never iterated and never closed is not recorded — always consume or close streams inside the recording context (using `with ...` guarantees this).
+
 See `examples/demo_streaming.py` for a full runnable walkthrough of recording and replaying a streaming agent.
 
 ---

@@ -60,10 +60,26 @@ def replay_stream(chunk_dicts):
                 "Re-record the golden: pytest --agentsnap-record"
             ) from e
 
-    def _gen():
-        yield from chunks
+    return _ReplayedStream(chunks)
 
-    return _gen()
+
+class _ReplayedStream:
+    """Replayed stream: iterable + context manager, mirroring the SDK Stream surface."""
+
+    def __init__(self, items) -> None:
+        self._items = items
+
+    def __iter__(self):
+        yield from self._items
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
 
 
 class OpenAIRecordingStream:
@@ -81,6 +97,11 @@ class OpenAIRecordingStream:
     def __iter__(self):
         # finally covers natural exhaustion, consumer break (GeneratorExit),
         # and mid-stream exceptions — the partial call is always recorded.
+        # Note: record mode pushes the llm_call at stream exhaustion/close, while
+        # replay pushes it at create() time — with a single active stream the
+        # relative order of llm_call vs interleaved tool_call events can differ
+        # between record and replay. Structural diff (tool names) and
+        # llm_request_diffs (llm order) are unaffected.
         try:
             for chunk in self._inner:
                 self._capture(chunk)

@@ -43,6 +43,32 @@ def reconstruct_event(event: dict):
         ) from e
 
 
+def replay_stream(chunk_dicts):
+    """Rebuild a recorded stream as a generator of real anthropic stream event objects."""
+    from anthropic.types import RawMessageStreamEvent
+    from pydantic import TypeAdapter
+
+    from agentsnap.exceptions import ReplayError
+
+    adapter = TypeAdapter(RawMessageStreamEvent)
+
+    events = []
+    for i, raw in enumerate(chunk_dicts):
+        try:
+            events.append(adapter.validate_python(raw))
+        except Exception as e:
+            raise ReplayError(
+                f"Failed to reconstruct recorded stream chunk {i} — the snapshot may "
+                f"be corrupt or recorded under a different SDK version ({e}). "
+                "Re-record the golden: pytest --agentsnap-record"
+            ) from e
+
+    def _gen():
+        yield from events
+
+    return _gen()
+
+
 class AnthropicRecordingStream:
     """Tees a streaming response: yields events unchanged, records the assembled call."""
 
@@ -137,6 +163,20 @@ class _MessagesProxy:
                     "raw_response": event.get("raw_response"),
                 }
             )
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                from agentsnap.exceptions import ReplayError
+
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return replay_stream(raw["chunks"])
             return reconstruct_event(event)
 
         if kwargs.get("stream"):

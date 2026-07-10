@@ -6,11 +6,13 @@ from agentsnap.adapters.anthropic import (
     AnthropicRecordingStream,
     dump_raw as _anthropic_dump_raw,
     reconstruct_event as _anthropic_reconstruct_event,
+    replay_stream as _anthropic_replay_stream,
 )
 from agentsnap.adapters.openai import (
     OpenAIRecordingStream,
     dump_raw as _openai_dump_raw,
     reconstruct_event as _openai_reconstruct_event,
+    replay_stream as _openai_replay_stream,
 )
 from agentsnap.core.recorder import TraceAccumulator
 
@@ -49,6 +51,20 @@ def _apply_anthropic() -> list[tuple]:
                     "raw_response": event.get("raw_response"),
                 }
             )
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                from agentsnap.exceptions import ReplayError
+
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return _anthropic_replay_stream(raw["chunks"])
             return _anthropic_reconstruct_event(event)
 
         if kwargs.get("stream"):
@@ -106,6 +122,20 @@ def _apply_openai() -> list[tuple]:
                     "raw_response": event.get("raw_response"),
                 }
             )
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                from agentsnap.exceptions import ReplayError
+
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return _openai_replay_stream(raw["chunks"])
             return _openai_reconstruct_event(event)
 
         if kwargs.get("stream"):

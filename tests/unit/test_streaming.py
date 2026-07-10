@@ -1,6 +1,18 @@
-from agentsnap.adapters.anthropic import AnthropicAdapter, AnthropicRecordingStream
-from agentsnap.adapters.openai import OpenAIAdapter, OpenAIRecordingStream
+import pytest
+
+from agentsnap.adapters.anthropic import (
+    AnthropicAdapter,
+    AnthropicRecordingStream,
+    replay_stream as anthropic_replay_stream,
+)
+from agentsnap.adapters.openai import (
+    OpenAIAdapter,
+    OpenAIRecordingStream,
+    replay_stream as openai_replay_stream,
+)
 from agentsnap.core.recorder import AgentRecorder, TraceAccumulator, _accumulator_var
+from agentsnap.core.replay import ReplaySession
+from agentsnap.exceptions import ReplayError
 
 
 class FakeDelta:
@@ -366,3 +378,137 @@ def test_anthropic_adapter_passthrough_without_accumulator_returns_raw_stream():
     result = client.messages.create(model="m", messages=[], stream=True)
     assert result is raw_stream
     assert not isinstance(result, AnthropicRecordingStream)
+
+
+# ── replay_stream: real SDK chunk/event reconstruction ─────────────────────────
+
+def _openai_chunk_dicts():
+    return [
+        {
+            "id": "1", "object": "chat.completion.chunk", "created": 1, "model": "m",
+            "choices": [{"index": 0, "delta": {"content": "Hello, "}, "finish_reason": None}],
+        },
+        {
+            "id": "1", "object": "chat.completion.chunk", "created": 1, "model": "m",
+            "choices": [{"index": 0, "delta": {"content": "world!"}, "finish_reason": None}],
+        },
+        {
+            "id": "1", "object": "chat.completion.chunk", "created": 1, "model": "m",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        },
+    ]
+
+
+def _anthropic_stream_event_dicts():
+    return [
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-mock",
+                "content": [], "stop_reason": None, "stop_sequence": None,
+                "usage": {"input_tokens": 11, "output_tokens": 0},
+            },
+        },
+        {
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": "Hello, "},
+        },
+        {
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": "world!"},
+        },
+    ]
+
+
+def test_openai_replay_stream_yields_real_chunk_objects():
+    gen = openai_replay_stream(_openai_chunk_dicts())
+    chunks = list(gen)
+    assert [c.choices[0].delta.content for c in chunks[:2]] == ["Hello, ", "world!"]
+
+
+def test_anthropic_replay_stream_yields_real_event_objects():
+    gen = anthropic_replay_stream(_anthropic_stream_event_dicts())
+    events = list(gen)
+    assert events[1].delta.text == "Hello, "
+    assert events[2].delta.text == "world!"
+
+
+def test_openai_replay_stream_corrupt_chunk_raises_replay_error():
+    with pytest.raises(ReplayError, match="Re-record"):
+        list(openai_replay_stream([{"not": "a valid chunk"}]))
+
+
+def test_anthropic_replay_stream_corrupt_chunk_raises_replay_error():
+    with pytest.raises(ReplayError, match="Re-record"):
+        list(anthropic_replay_stream([{"not": "a valid event"}]))
+
+
+# ── replay shape-mismatch guard ─────────────────────────────────────────────────
+
+def _stream_recorded_llm_event():
+    return {
+        "type": "llm_call",
+        "step": 1,
+        "messages": [{"role": "user", "content": "hi"}],
+        "response": "Hello, world!",
+        "tokens": 0,
+        "raw_response": {"__stream__": True, "chunks": _openai_chunk_dicts()},
+    }
+
+
+def _nonstream_recorded_llm_event():
+    return {
+        "type": "llm_call",
+        "step": 1,
+        "messages": [{"role": "user", "content": "hi"}],
+        "response": "hi",
+        "tokens": 5,
+        "raw_response": {
+            "id": "1", "object": "chat.completion", "created": 1, "model": "m",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"},
+                         "finish_reason": "stop"}],
+        },
+    }
+
+
+def test_openai_replay_stream_request_against_nonstream_recording_raises_shape_mismatch():
+    acc = TraceAccumulator(replay=ReplaySession([_nonstream_recorded_llm_event()]))
+    completions = FakeCompletions(FakeStream([]))
+    client = OpenAIAdapter(FakeClient(completions))
+    _accumulator_var.set(acc)
+    try:
+        with pytest.raises(ReplayError, match="shape mismatch"):
+            client.chat.completions.create(
+                model="m", messages=[{"role": "user", "content": "hi"}], stream=True
+            )
+    finally:
+        _accumulator_var.set(None)
+
+
+def test_openai_replay_nonstream_request_against_stream_recording_raises_shape_mismatch():
+    acc = TraceAccumulator(replay=ReplaySession([_stream_recorded_llm_event()]))
+    completions = FakeCompletions(FakeStream([]))
+    client = OpenAIAdapter(FakeClient(completions))
+    _accumulator_var.set(acc)
+    try:
+        with pytest.raises(ReplayError, match="shape mismatch"):
+            client.chat.completions.create(
+                model="m", messages=[{"role": "user", "content": "hi"}]
+            )
+    finally:
+        _accumulator_var.set(None)
+
+
+def test_openai_replay_stream_request_against_stream_recording_returns_real_chunks():
+    acc = TraceAccumulator(replay=ReplaySession([_stream_recorded_llm_event()]))
+    completions = FakeCompletions(FakeStream([]))
+    client = OpenAIAdapter(FakeClient(completions))
+    _accumulator_var.set(acc)
+    try:
+        result = client.chat.completions.create(
+            model="m", messages=[{"role": "user", "content": "hi"}], stream=True
+        )
+        chunks = list(result)
+        assert [c.choices[0].delta.content for c in chunks[:2]] == ["Hello, ", "world!"]
+    finally:
+        _accumulator_var.set(None)

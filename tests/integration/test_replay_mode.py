@@ -13,6 +13,115 @@ from tests.fixtures.mock_agents import (
 )
 
 
+# ── Streaming round trip: record streamed chunks, replay as real SDK objects ────
+
+class FakeAnthDelta:
+    def __init__(self, text=None):
+        self.text = text
+
+
+class FakeAnthUsage:
+    def __init__(self, input_tokens=0, output_tokens=0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class FakeAnthMessage:
+    def __init__(self, usage):
+        self.usage = usage
+
+
+class FakeAnthStreamEvent:
+    def __init__(self, type, message=None, delta=None, usage=None):
+        self.type = type
+        self.message = message
+        self.delta = delta
+        self.usage = usage
+
+    def model_dump(self, mode="json"):
+        d = {"type": self.type}
+        if self.message is not None:
+            d["message"] = {
+                "id": "msg_mock", "type": "message", "role": "assistant",
+                "model": "claude-mock", "content": [], "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {
+                    "input_tokens": self.message.usage.input_tokens,
+                    "output_tokens": self.message.usage.output_tokens,
+                },
+            }
+        if self.delta is not None:
+            d["index"] = 0
+            d["delta"] = {"type": "text_delta", "text": self.delta.text}
+        if self.usage is not None:
+            d["delta"] = {"stop_reason": "end_turn", "stop_sequence": None}
+            d["usage"] = {
+                "input_tokens": self.usage.input_tokens,
+                "output_tokens": self.usage.output_tokens,
+            }
+        return d
+
+
+def _stream_events(text_parts):
+    events = [FakeAnthStreamEvent("message_start", message=FakeAnthMessage(FakeAnthUsage(11, 0)))]
+    for part in text_parts:
+        events.append(FakeAnthStreamEvent("content_block_delta", delta=FakeAnthDelta(part)))
+    events.append(FakeAnthStreamEvent("message_delta", usage=FakeAnthUsage(0, 9)))
+    return events
+
+
+class FakeAnthStream:
+    def __init__(self, events):
+        self._events = events
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def close(self):
+        pass
+
+
+class StreamingMessages:
+    def __init__(self, events):
+        self._events = events
+
+    def create(self, **kwargs):
+        assert kwargs.get("stream") is True
+        return FakeAnthStream(self._events)
+
+
+class StreamingClient:
+    def __init__(self, events):
+        self.messages = StreamingMessages(events)
+
+
+def StreamingAgent(client, input_text: str) -> str:
+    """Streams one LLM call and joins the delta text as its output."""
+    stream = client.messages.create(
+        model="claude-mock",
+        messages=[{"role": "user", "content": input_text}],
+        max_tokens=100,
+        stream=True,
+    )
+    parts = []
+    for event in stream:
+        if getattr(event, "type", "") == "content_block_delta":
+            parts.append(event.delta.text)
+    return "".join(parts)
+
+
+def test_replay_streams_recorded_chunks_as_real_sdk_objects_without_live_call(tmp_path):
+    client = AnthropicAdapter(StreamingClient(_stream_events(["Hello, ", "world!"])))
+    with AgentRecorder("replay_stream_it", snapshot_dir=str(tmp_path)) as rec:
+        rec.output = StreamingAgent(client, "hello")
+    assert rec.output == "Hello, world!"
+
+    replay_client = AnthropicAdapter(ExplodingClient())
+    with AgentAsserter("replay_stream_it", snapshot_dir=str(tmp_path), mode="replay") as a:
+        a.output = StreamingAgent(replay_client, "hello")
+    assert a.output == "Hello, world!"
+
+
 class ExplodingMessages:
     def create(self, **kwargs):
         raise AssertionError("live API called during replay")

@@ -121,6 +121,45 @@ def test_missing_new_trace_step_shows_missing_placeholder():
     assert "<missing>" in msg
 
 
+def test_deepdiff_shaped_args_render_not_empty():
+    """When deepdiff is installed, argument_diffs carry keys like values_changed
+    instead of the plain changed/added/removed shape. The [ARGS] block must not
+    render empty in that case."""
+    diff = {
+        "llm_call[0].messages": {
+            "values_changed": {
+                "root['messages'][0]['content']": {
+                    "new_value": "edited",
+                    "old_value": "original",
+                }
+            }
+        }
+    }
+    report = DiffReport(passed=False, argument_diffs=diff, failed_checks=["args"])
+    err = AgentRegressionError("my_test", report, {"output": "o", "trace": []}, [], "o")
+    msg = str(err)
+    assert "values_changed" in msg
+    assert "edited" in msg
+    assert "original" in msg
+
+
+def test_plain_shape_args_still_render_as_before():
+    """Regression: the pre-existing changed/added/removed rendering must stay intact."""
+    diff = {
+        "tool_call[0].args": {
+            "changed": {"query": ("old query", "new query")},
+            "added": {"limit": 10},
+            "removed": {"legacy_flag": True},
+        }
+    }
+    report = DiffReport(passed=False, argument_diffs=diff, failed_checks=["args"])
+    err = AgentRegressionError("my_test", report, {"output": "o", "trace": []}, [], "o")
+    msg = str(err)
+    assert "query: 'old query' -> 'new query'" in msg
+    assert "+ limit: 10" in msg
+    assert "- legacy_flag: True" in msg
+
+
 def test_snapshot_format_error_is_exception():
     from agentsnap.exceptions import SnapshotFormatError
     err = SnapshotFormatError("old format")

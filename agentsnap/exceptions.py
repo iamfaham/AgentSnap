@@ -62,6 +62,9 @@ class AgentRegressionError(Exception):
                     lines.append(f"  + {field}: {val!r}")
                 for field, val in diff.get("removed", {}).items():
                     lines.append(f"  - {field}: {val!r}")
+                for key, value in diff.items():
+                    if key not in ("changed", "added", "removed", "old", "new"):
+                        lines.append(f"  {key}: {_excerpt(repr(value))}")
             else:
                 lines.append(f"  {diff}")
             lines.append("")

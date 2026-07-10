@@ -193,6 +193,48 @@ def test_update_all_skips_corrupt_golden(tmp_path):
     assert golden.read_text(encoding="utf-8") == "{not valid json"
 
 
+def test_update_all_ignores_volatile_only_trace_diff(tmp_path):
+    """Rule 3 (result-less last_run) must normalize tokens/raw_response before
+    comparing traces, so volatile-only differences don't create a candidate."""
+    runner = CliRunner()
+    snap_dir = str(tmp_path / "snaps")
+    name = "volatile_only_test"
+
+    def _write_with_trace(path: Path, output: str, trace: list) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {"output": output, "trace": trace, "model": "test", "version": "1.0",
+                "recorded_at": "2026-01-01T00:00:00+00:00", "input": None}
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    golden_trace = [{"type": "llm_call", "step": 0, "messages": [], "response": "r",
+                      "tokens": 10, "raw_response": {"id": "abc"}}]
+    last_run_trace = [{"type": "llm_call", "step": 0, "messages": [], "response": "r",
+                        "tokens": 99, "raw_response": {"id": "xyz"}}]
+
+    _write_with_trace(snapshot_path(name, snap_dir), output="same", trace=golden_trace)
+    _write_with_trace(last_run_path(name, snap_dir), output="same", trace=last_run_trace)
+
+    result = runner.invoke(cli, ["update", "--all", "--yes", f"--snapshot-dir={snap_dir}"])
+    assert result.exit_code == 0, result.output
+    assert "All snapshots are up to date." in result.output
+    assert f"--- {name}.json ---" not in result.output
+
+
+def test_update_all_still_candidate_when_tool_name_differs(tmp_path):
+    """Non-volatile trace differences (e.g. tool name) must still make a
+    result-less last_run a candidate under --all."""
+    runner = CliRunner()
+    snap_dir = str(tmp_path / "snaps")
+    name = "tool_name_diff_test"
+
+    _write_snap(snapshot_path(name, snap_dir), output="same", tools=["search"])
+    _write_snap(last_run_path(name, snap_dir), output="same", tools=["fetch"])
+
+    result = runner.invoke(cli, ["update", "--all", "--yes", f"--snapshot-dir={snap_dir}"])
+    assert result.exit_code == 0, result.output
+    assert f"--- {name}.json ---" in result.output
+
+
 def test_update_all_skips_corrupt_last_run(tmp_path):
     runner = CliRunner()
     snap_dir = str(tmp_path / "snaps")

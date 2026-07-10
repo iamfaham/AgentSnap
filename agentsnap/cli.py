@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from agentsnap.core.normalize import DEFAULT_VOLATILE_FIELDS, normalize_trace
 from agentsnap.core.snapshot import list_snapshots
 
 DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
@@ -196,7 +197,8 @@ def _is_all_candidate(last_run_p: Path, snapshot_dir: str) -> bool:
 
     return (
         run_data.get("output", "") != golden.get("output", "")
-        or run_data.get("trace", []) != golden.get("trace", [])
+        or normalize_trace(run_data.get("trace", []), DEFAULT_VOLATILE_FIELDS)
+        != normalize_trace(golden.get("trace", []), DEFAULT_VOLATILE_FIELDS)
     )
 
 

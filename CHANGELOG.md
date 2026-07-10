@@ -27,6 +27,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - MIT `LICENSE` file and a `py.typed` marker for downstream type checkers.
 - CI workflow (test matrix across Python 3.10-3.13 on Linux and Windows, plus lint) and a tag-triggered release workflow that publishes to PyPI via Trusted Publishing.
 
+### Changed
+
+- `agentsnap status` now exits 1 when a golden or last-run snapshot file is unreadable (corrupt JSON), not just on FAIL — a corrupt committed golden should not pass CI.
+
 ### Fixed
 
 - `ReplayError` is raised cleanly (instead of leaking a lower-level exception) when a recorded response fails to reconstruct.

@@ -211,6 +211,7 @@ def test_status_covers_every_state_and_exits_1_on_fail(tmp_path):
     assert "passing_agent" in result.output and "PASS" in result.output
     assert "failing_agent" in result.output and "FAIL" in result.output
     assert "semantic:output" in result.output
+    assert "FAIL   semantic:output (replay)" in result.output
     assert "no_run_agent" in result.output and "no run" in result.output
     assert "stale_agent" in result.output and "approved (re-run tests)" in result.output
     assert "no_result_agent" in result.output and "unknown (re-run tests)" in result.output
@@ -241,7 +242,7 @@ def test_status_handles_unreadable_json_gracefully(tmp_path):
     runner = CliRunner()
     result = runner.invoke(cli, ["status", f"--snapshot-dir={snap_dir}"])
     assert "unknown (unreadable)" in result.output
-    assert result.exit_code == 0
+    assert result.exit_code == 1
 
 
 def test_show_pretty_prints_json(tmp_path):
@@ -274,6 +275,16 @@ def test_ensure_gitignore_entry_appends_to_existing_file(tmp_path):
     lines = gitignore.read_text(encoding="utf-8").splitlines()
     assert "*.pyc" in lines
     assert "__agent_snapshots__/.last_run/" in lines
+
+
+def test_ensure_gitignore_entry_normalized_match_no_slash(tmp_path):
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("__agent_snapshots__/.last_run\n", encoding="utf-8")
+
+    msg = _ensure_gitignore_entry(tmp_path)
+    assert msg == "already in .gitignore"
+    lines = gitignore.read_text(encoding="utf-8").splitlines()
+    assert lines == ["__agent_snapshots__/.last_run"]
 
 
 def test_ensure_gitignore_entry_idempotent(tmp_path):

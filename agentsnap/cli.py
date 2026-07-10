@@ -314,14 +314,17 @@ def _ensure_gitignore_entry(project_dir: Path) -> str:
     """Ensure __agent_snapshots__/.last_run/ is ignored by git. Idempotent.
 
     Creates .gitignore if absent. Appends a `# agentsnap` comment above the
-    entry when adding. Does nothing if the exact line is already present.
+    entry when adding. Does nothing if an equivalent entry is already present,
+    normalizing away surrounding whitespace and a trailing slash so
+    `__agent_snapshots__/.last_run` (no slash) is also recognized.
     """
     gitignore_path = project_dir / ".gitignore"
+    normalized_target = _GITIGNORE_ENTRY.strip().rstrip("/")
 
     if gitignore_path.exists():
         content = gitignore_path.read_text(encoding="utf-8")
         existing_lines = content.splitlines()
-        if _GITIGNORE_ENTRY in existing_lines:
+        if any(line.strip().rstrip("/") == normalized_target for line in existing_lines):
             return "already in .gitignore"
 
         new_content = content
@@ -473,7 +476,7 @@ def list_cmd(snapshot_dir: str) -> None:
 @cli.command("status")
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 def status_cmd(snapshot_dir: str) -> None:
-    """Show pass/fail/stale status for every snapshot (CI-friendly, exits 1 on FAIL)."""
+    """Show pass/fail/stale status for every snapshot (CI-friendly, exits 1 on FAIL or unreadable files)."""
     snapshots = list_snapshots(snapshot_dir)
     if not snapshots:
         click.echo(f"No snapshots found in '{snapshot_dir}'.")
@@ -482,6 +485,7 @@ def status_cmd(snapshot_dir: str) -> None:
     last_run_dir = Path(snapshot_dir) / ".last_run"
     counts: dict[str, int] = {}
     any_fail = False
+    any_unreadable = False
     matched_names: set[str] = set()
 
     click.echo(f"Snapshots in '{snapshot_dir}':")
@@ -496,6 +500,7 @@ def status_cmd(snapshot_dir: str) -> None:
         except Exception:
             click.secho(f"  {name:<40} unknown (unreadable)", fg="white", dim=True)
             counts["unreadable"] = counts.get("unreadable", 0) + 1
+            any_unreadable = True
             continue
 
         if not last_run_p.exists():
@@ -508,6 +513,7 @@ def status_cmd(snapshot_dir: str) -> None:
         except Exception:
             click.secho(f"  {name:<40} unknown (unreadable)", fg="white", dim=True)
             counts["unreadable"] = counts.get("unreadable", 0) + 1
+            any_unreadable = True
             continue
 
         golden_recorded = golden.get("recorded_at", "")
@@ -531,7 +537,9 @@ def status_cmd(snapshot_dir: str) -> None:
             counts["passed"] = counts.get("passed", 0) + 1
         else:
             failed_checks = ",".join(result.get("failed_checks", []))
-            click.secho(f"  {name:<40} FAIL   {failed_checks}", fg="red")
+            mode = result.get("mode", "")
+            line = f"FAIL   {failed_checks} ({mode})" if mode else f"FAIL   {failed_checks}"
+            click.secho(f"  {name:<40} {line}", fg="red")
             counts["failed"] = counts.get("failed", 0) + 1
             any_fail = True
 
@@ -557,7 +565,7 @@ def status_cmd(snapshot_dir: str) -> None:
     ]
     click.echo(f"Summary: {', '.join(summary_parts)}")
 
-    raise SystemExit(1 if any_fail else 0)
+    raise SystemExit(1 if any_fail or any_unreadable else 0)
 
 
 def main() -> None:

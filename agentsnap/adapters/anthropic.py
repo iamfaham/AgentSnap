@@ -56,10 +56,14 @@ class AnthropicRecordingStream:
         self._recorded = False
 
     def __iter__(self):
-        for event in self._inner:
-            self._capture(event)
-            yield event
-        self._record()
+        # finally covers natural exhaustion, consumer break (GeneratorExit),
+        # and mid-stream exceptions — the partial call is always recorded.
+        try:
+            for event in self._inner:
+                self._capture(event)
+                yield event
+        finally:
+            self._record()
 
     def _capture(self, event) -> None:
         self._chunks.append(event)

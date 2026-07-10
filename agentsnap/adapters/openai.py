@@ -56,10 +56,14 @@ class OpenAIRecordingStream:
         self._recorded = False
 
     def __iter__(self):
-        for chunk in self._inner:
-            self._capture(chunk)
-            yield chunk
-        self._record()
+        # finally covers natural exhaustion, consumer break (GeneratorExit),
+        # and mid-stream exceptions — the partial call is always recorded.
+        try:
+            for chunk in self._inner:
+                self._capture(chunk)
+                yield chunk
+        finally:
+            self._record()
 
     def _capture(self, chunk) -> None:
         self._chunks.append(chunk)

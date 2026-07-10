@@ -123,6 +123,19 @@ def test_early_close_after_partial_consumption_records_partial_text_once():
     assert len(acc.trace) == 1
 
 
+def test_abandoned_iteration_still_records_partial():
+    """Consumer breaks out of the for-loop without ever calling close()."""
+    chunks = _chunks()
+    acc = TraceAccumulator()
+    stream = OpenAIRecordingStream(FakeStream(chunks), [{"role": "user", "content": "hi"}], acc)
+
+    for chunk in stream:
+        break  # abandon after the first chunk; generator gets GeneratorExit
+
+    assert len(acc.trace) == 1
+    assert acc.trace[0]["response"] == "Hello, "
+
+
 def test_guards_empty_choices_chunk():
     acc = TraceAccumulator()
     stream = OpenAIRecordingStream(FakeStream([EmptyChoicesChunk()]), [], acc)
@@ -285,6 +298,21 @@ def test_anthropic_single_llm_call_event_pushed_on_exhaustion():
     assert event["tokens"] == 20  # 11 input + 9 output
     assert event["raw_response"]["__stream__"] is True
     assert len(event["raw_response"]["chunks"]) == 5
+
+
+def test_anthropic_abandoned_iteration_still_records_partial():
+    """Consumer breaks out of the for-loop without ever calling close()."""
+    events = _anth_events()
+    acc = TraceAccumulator()
+    stream = AnthropicRecordingStream(
+        FakeAnthStream(events), [{"role": "user", "content": "hi"}], acc
+    )
+
+    for event in stream:
+        break  # abandon after message_start; generator gets GeneratorExit
+
+    assert len(acc.trace) == 1
+    assert acc.trace[0]["tokens"] == 11
 
 
 def test_anthropic_early_close_after_partial_consumption_records_partial_text_once():

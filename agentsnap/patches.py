@@ -4,17 +4,21 @@ import warnings
 
 from agentsnap.adapters.anthropic import (
     AnthropicRecordingStream,
+    AsyncAnthropicRecordingStream,
     dump_raw as _anthropic_dump_raw,
     extract_tool_requests as _anthropic_extract_tool_requests,
     reconstruct_event as _anthropic_reconstruct_event,
     replay_stream as _anthropic_replay_stream,
+    replay_stream_async as _anthropic_replay_stream_async,
 )
 from agentsnap.adapters.openai import (
+    AsyncOpenAIRecordingStream,
     OpenAIRecordingStream,
     dump_raw as _openai_dump_raw,
     extract_tool_requests as _openai_extract_tool_requests,
     reconstruct_event as _openai_reconstruct_event,
     replay_stream as _openai_replay_stream,
+    replay_stream_async as _openai_replay_stream_async,
 )
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
@@ -101,6 +105,75 @@ def _apply_anthropic() -> list[tuple]:
     return [(Messages, "create", original)]
 
 
+def _apply_anthropic_async() -> list[tuple]:
+    from anthropic.resources.messages.messages import AsyncMessages
+
+    original = AsyncMessages.create
+
+    async def _interceptor(self, *args, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return await original(self, *args, **kwargs)
+        messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            pushed = {
+                "type": "llm_call",
+                "messages": messages,
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return _anthropic_replay_stream_async(raw["chunks"])
+            return _anthropic_reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = await original(self, *args, **kwargs)
+            return AsyncAnthropicRecordingStream(response, messages, acc)
+
+        response = await original(self, *args, **kwargs)
+        text = ""
+        tokens = 0
+        if hasattr(response, "content"):
+            for block in response.content:
+                if hasattr(block, "text"):
+                    text += block.text
+        if hasattr(response, "usage"):
+            tokens = (
+                getattr(response.usage, "input_tokens", 0)
+                + getattr(response.usage, "output_tokens", 0)
+            )
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": text,
+                "tokens": tokens,
+                "raw_response": _anthropic_dump_raw(response),
+                "tool_requests": _anthropic_extract_tool_requests(response),
+            }
+        )
+        return response
+
+    AsyncMessages.create = _interceptor
+    return [(AsyncMessages, "create", original)]
+
+
 # ── OpenAI (also covers Groq and OpenRouter — same SDK interface) ──────────────
 
 def _apply_openai() -> list[tuple]:
@@ -166,6 +239,71 @@ def _apply_openai() -> list[tuple]:
 
     Completions.create = _interceptor
     return [(Completions, "create", original)]
+
+
+def _apply_openai_async() -> list[tuple]:
+    from openai.resources.chat.completions.completions import AsyncCompletions
+
+    original = AsyncCompletions.create
+
+    async def _interceptor(self, *args, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return await original(self, *args, **kwargs)
+        messages = kwargs.get("messages", [])
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            pushed = {
+                "type": "llm_call",
+                "messages": messages,
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            if is_stream_recording:
+                return _openai_replay_stream_async(raw["chunks"])
+            return _openai_reconstruct_event(event)
+
+        if kwargs.get("stream"):
+            response = await original(self, *args, **kwargs)
+            return AsyncOpenAIRecordingStream(response, messages, acc)
+
+        kwargs["stream"] = False
+        response = await original(self, *args, **kwargs)
+        text = ""
+        tokens = 0
+        if hasattr(response, "choices") and response.choices:
+            text = response.choices[0].message.content or ""
+        if hasattr(response, "usage"):
+            tokens = getattr(response.usage, "total_tokens", 0)
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": text,
+                "tokens": tokens,
+                "raw_response": _openai_dump_raw(response),
+                "tool_requests": _openai_extract_tool_requests(response),
+            }
+        )
+        return response
+
+    AsyncCompletions.create = _interceptor
+    return [(AsyncCompletions, "create", original)]
 
 
 # ── Gemini (google-genai >= 1.0) ───────────────────────────────────────────────
@@ -295,6 +433,8 @@ def _apply_mistral() -> list[tuple]:
 _PATCHER_FNS = [
     _apply_anthropic,
     _apply_openai,
+    _apply_anthropic_async,
+    _apply_openai_async,
     _apply_gemini,
     _apply_cohere,
     _apply_mistral,

@@ -82,6 +82,24 @@ def replay_stream(chunk_dicts):
     return _ReplayedStream(chunks)
 
 
+def replay_stream_async(chunk_dicts):
+    """Rebuild a recorded stream as an async generator of real openai ChatCompletionChunk objects."""
+    from openai.types.chat import ChatCompletionChunk
+
+    chunks = []
+    for i, raw in enumerate(chunk_dicts):
+        try:
+            chunks.append(ChatCompletionChunk.model_validate(raw))
+        except Exception as e:
+            raise ReplayError(
+                f"Failed to reconstruct recorded stream chunk {i} — the snapshot may "
+                f"be corrupt or recorded under a different SDK version ({e}). "
+                "Re-record the golden: pytest --agentsnap-record"
+            ) from e
+
+    return _AsyncReplayedStream(chunks)
+
+
 class _ReplayedStream:
     """Replayed stream: iterable + context manager, mirroring the SDK Stream surface."""
 
@@ -99,6 +117,26 @@ class _ReplayedStream:
 
     def __exit__(self, *args) -> None:
         self.close()
+
+
+class _AsyncReplayedStream:
+    """Replayed async stream: async-iterable + async context manager."""
+
+    def __init__(self, items) -> None:
+        self._items = items
+
+    async def __aiter__(self):
+        for item in self._items:
+            yield item
+
+    async def aclose(self) -> None:
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        await self.aclose()
 
 
 class OpenAIRecordingStream:
@@ -170,6 +208,48 @@ class OpenAIRecordingStream:
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
+
+
+class AsyncOpenAIRecordingStream(OpenAIRecordingStream):
+    """Async tee: yields chunks unchanged, records the assembled call.
+
+    Subclasses the sync tee to reuse ``_capture``/``_record``/``__init__``
+    (including ``acc.register_stream(self)``) and only overrides the
+    iteration/close surface for the async protocol.
+    """
+
+    async def __aiter__(self):
+        # Mirrors OpenAIRecordingStream.__iter__: try/finally covers
+        # natural exhaustion, consumer abandonment (GeneratorExit via
+        # aclose()), and mid-stream exceptions — the partial call is
+        # always recorded.
+        try:
+            async for chunk in self._inner:
+                self._capture(chunk)
+                yield chunk
+        finally:
+            self._record()
+
+    async def aclose(self) -> None:
+        try:
+            inner_aclose = getattr(self._inner, "aclose", None)
+            if inner_aclose is not None:
+                await inner_aclose()
+        finally:
+            self._record()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        await self.aclose()
+
+    def close(self) -> None:
+        # TraceAccumulator.finalize_streams() runs synchronously at context
+        # exit and cannot await the inner stream's aclose(); recording the
+        # partial event here matters more than closing the inner stream, so
+        # this sync close() only records — it never touches self._inner.
+        self._record()
 
 
 class _CompletionsProxy:

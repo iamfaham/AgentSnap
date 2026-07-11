@@ -221,10 +221,11 @@ provider-side regression).
 Failed checks: ['model_tools', 'model_tool_args']
 ```
 
-Backward compatible: the comparison only engages when **both** sides of the
-diff carry `tool_requests`. Snapshots recorded before this feature (or
-streamed events, which don't assemble `tool_requests` yet) skip the check
-silently — old goldens never fail from the new surface.
+Backward compatible: the comparison only engages when **every** `llm_call`
+event on **both** sides of the diff carries `tool_requests`. Note this gate
+is trace-wide, not per-event: a single streamed call or non-Anthropic/OpenAI
+call anywhere in the trace disables the model-tools check for the whole run.
+Old goldens (recorded before this feature) never fail from the new surface.
 
 Scope today: non-streaming Anthropic and OpenAI calls, plus Groq/OpenRouter
 via inheritance. Streamed `tool_use` assembly is not captured yet.

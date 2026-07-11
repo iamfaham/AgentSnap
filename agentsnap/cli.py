@@ -137,6 +137,23 @@ def _print_update_diff(old: dict, new: dict) -> None:
     else:
         click.echo(f"  tool sequence: unchanged {old_tools}")
 
+    old_reqs = [
+        r["name"]
+        for s in old.get("trace", [])
+        if s.get("type") == "llm_call"
+        for r in s.get("tool_requests") or []
+    ]
+    new_reqs = [
+        r["name"]
+        for s in new.get("trace", [])
+        if s.get("type") == "llm_call"
+        for r in s.get("tool_requests") or []
+    ]
+    if old_reqs != new_reqs:
+        click.echo(f"  model-requested tools:\n    old: {old_reqs}\n    new: {new_reqs}")
+    elif old_reqs:
+        click.echo(f"  model-requested tools: unchanged {old_reqs}")
+
     old_steps = len(old.get("trace", []))
     new_steps = len(new.get("trace", []))
     if old_steps != new_steps:

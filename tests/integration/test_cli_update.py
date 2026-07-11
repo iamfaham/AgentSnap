@@ -38,6 +38,31 @@ def test_update_shows_diff_and_confirms(tmp_path):
     assert "result" not in promoted
 
 
+def test_update_shows_model_requested_tools_change(tmp_path):
+    """A model_tools-only regression must be visible in the approval diff."""
+    runner = CliRunner()
+    snap_dir = str(tmp_path / "snaps")
+    name = "model_tools_test"
+
+    def _write_with_reqs(path: Path, req_name: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        trace = [{"type": "llm_call", "messages": [], "response": "r", "tokens": 1,
+                  "step": 0, "tool_requests": [{"name": req_name, "args": {"q": "x"}}]}]
+        data = {"output": "same output", "trace": trace, "model": "test",
+                "version": "1.1", "recorded_at": "2026-01-01T00:00:00+00:00"}
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    _write_with_reqs(snapshot_path(name, snap_dir), "search")
+    _write_with_reqs(last_run_path(name, snap_dir), "delete_file")
+
+    result = runner.invoke(cli, ["update", name, f"--snapshot-dir={snap_dir}", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "model-requested tools" in result.output
+    assert "search" in result.output
+    assert "delete_file" in result.output
+
+
 def test_update_aborts_without_yes(tmp_path):
     runner = CliRunner()
     snap_dir = str(tmp_path / "snaps")

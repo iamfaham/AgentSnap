@@ -345,10 +345,11 @@ Failed checks: ['model_tools', 'model_tool_args']
 
 Notes:
 - Backward compatible: the comparison only engages when **both** the old and new trace carry `tool_requests` on their `llm_call` events. Snapshots recorded before this feature was added skip the check silently — old goldens never fail from the new surface.
-- Streamed responses don't assemble `tool_requests` yet, so streamed `llm_call` events are also skipped by this check.
+- The gate is trace-wide, not per-event: a single streamed call or non-Anthropic/OpenAI call anywhere in the trace disables the model-tools check for the whole run (streamed responses don't assemble `tool_requests` yet).
+- `structural_tolerance` applies to BOTH the executed-tool sequence and the model-requested tool sequence — relaxing it for flaky tool ordering also relaxes the model-tools check.
 - Scope today: non-streaming Anthropic and OpenAI calls, plus Groq/OpenRouter via inheritance.
 
-See `examples/demo_tool_use.py` for a full runnable walkthrough: record a golden run where the model requests `search`, replay it unchanged, then watch agentsnap catch the model requesting `delete_file` instead.
+See `examples/demo_tool_use.py` for a full runnable walkthrough: record a golden run where the model requests `search`, re-run it unchanged, then watch agentsnap catch the model requesting `delete_file` instead.
 
 ---
 

@@ -17,9 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Argument diffs render per-path when `deepdiff` produces a `values_changed`-style mapping, instead of dumping the raw deepdiff object.
 
-### Fixed
+### Known limitations
 
-- **Known limitation, documented, not fixed:** the pytest terminal summary is per-worker under `pytest-xdist` and is not aggregated across workers — run without `-n` if you need the full picture in one place.
+- The pytest terminal summary is per-worker under `pytest-xdist` and is not aggregated across workers — run without `-n` if you need the full picture in one place.
 
 ## [0.2.1] - 2026-07-10
 

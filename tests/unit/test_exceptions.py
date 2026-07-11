@@ -160,6 +160,41 @@ def test_plain_shape_args_still_render_as_before():
     assert "- legacy_flag: True" in msg
 
 
+def test_model_tools_diff_shown_in_render():
+    report = DiffReport(
+        passed=False,
+        model_tools_diff="Model-requested tool sequence changed (edit distance 1): ['search'] -> ['delete_file']",
+        failed_checks=["model_tools"],
+    )
+    err = AgentRegressionError("my_test", report, {"output": "o", "trace": []}, [], "o")
+    msg = str(err)
+    assert "[MODEL TOOLS]" in msg
+    assert "search" in msg
+    assert "delete_file" in msg
+
+
+def test_deepdiff_values_changed_renders_one_line_per_path():
+    """Hand-written values_changed shape with two paths — each path must render
+    on its own line as `path: old -> new`, not a single collapsed repr line."""
+    diff = {
+        "tool_call[0].args": {
+            "values_changed": {
+                "root['a']": {"old_value": "old-a", "new_value": "new-a"},
+                "root['b']": {"old_value": "old-b", "new_value": "new-b"},
+            }
+        }
+    }
+    report = DiffReport(passed=False, argument_diffs=diff, failed_checks=["args"])
+    err = AgentRegressionError("my_test", report, {"output": "o", "trace": []}, [], "o")
+    msg = str(err)
+    lines = msg.splitlines()
+    line_a = next(ln for ln in lines if "root['a']" in ln)
+    line_b = next(ln for ln in lines if "root['b']" in ln)
+    assert "old-a" in line_a and "new-a" in line_a and "->" in line_a
+    assert "old-b" in line_b and "new-b" in line_b and "->" in line_b
+    assert line_a != line_b
+
+
 def test_snapshot_format_error_is_exception():
     from agentsnap.exceptions import SnapshotFormatError
     err = SnapshotFormatError("old format")

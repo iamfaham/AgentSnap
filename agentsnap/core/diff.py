@@ -266,6 +266,7 @@ class DiffReport:
     semantic_scores: dict[str, float] = field(default_factory=dict)
     semantic_reasons: dict[str, str] = field(default_factory=dict)
     failed_checks: list[str] = field(default_factory=list)
+    model_tools_diff: str | None = None
 
 
 def _tool_calls(trace: list[dict]) -> list[dict]:
@@ -348,6 +349,55 @@ def argument_diffs(
         if diff:
             diffs[key] = diff
     return diffs
+
+
+def model_tool_diffs(
+    old_trace: list[dict],
+    new_trace: list[dict],
+    ignored_fields: list[str] | None = None,
+) -> tuple[str | None, int, dict[str, Any]]:
+    """Compare the tool calls the MODEL requested (llm_call "tool_requests").
+
+    Gate: if any llm_call event on EITHER side lacks the "tool_requests" key
+    (old-format snapshot, or a streamed event), the comparison is skipped
+    entirely — returns (None, 0, {}) so old snapshots keep passing untouched.
+
+    Returns (message, edit_distance, arg_diffs):
+      - message: None if the flattened name sequences match, else a
+        descriptive string with the edit distance.
+      - edit_distance: 0 when sequences match; the caller decides whether to
+        fail based on config.structural_tolerance (mirrors structural_diff).
+      - arg_diffs: dict keyed f"model_tool:{name}[{i}]" for each pairwise
+        request whose args differ (zipped across both sides).
+    """
+    old_llm = _llm_calls(old_trace)
+    new_llm = _llm_calls(new_trace)
+    if any("tool_requests" not in e for e in old_llm) or any("tool_requests" not in e for e in new_llm):
+        return None, 0, {}
+
+    old_reqs = [r for e in old_llm for r in e["tool_requests"]]
+    new_reqs = [r for e in new_llm for r in e["tool_requests"]]
+    old_names = [r["name"] for r in old_reqs]
+    new_names = [r["name"] for r in new_reqs]
+
+    ignored = set(ignored_fields or [])
+    arg_diffs: dict[str, Any] = {}
+    for i, (old_r, new_r) in enumerate(zip(old_reqs, new_reqs)):
+        old_wrapped = {"args": old_r.get("args")}
+        new_wrapped = {"args": new_r.get("args")}
+        diff = _deepdiff_args(old_wrapped, new_wrapped, ignored) or _plain_diff_args(old_wrapped, new_wrapped, ignored)
+        if diff:
+            arg_diffs[f"model_tool:{old_r['name']}[{i}]"] = diff
+
+    if old_names == new_names:
+        return None, 0, arg_diffs
+
+    dist = _edit_distance(old_names, new_names)
+    message = (
+        f"Model-requested tool sequence changed (edit distance {dist}): "
+        f"{old_names!r} -> {new_names!r}"
+    )
+    return message, dist, arg_diffs
 
 
 def llm_request_diffs(
@@ -481,6 +531,15 @@ def compute_diff(
         if arg_diffs:
             failed.append("arguments")
 
+    model_tools_msg, model_tools_dist, model_tool_arg_diffs = model_tool_diffs(
+        old_trace, new_trace, config.ignored_fields
+    )
+    if model_tools_msg is not None and model_tools_dist > config.structural_tolerance:
+        failed.append("model_tools")
+    if model_tool_arg_diffs:
+        arg_diffs.update(model_tool_arg_diffs)
+        failed.append("model_tool_args")
+
     if config.compare_llm_requests:
         req_diffs = llm_request_diffs(old_trace, new_trace, config.ignored_fields)
         if req_diffs:
@@ -505,4 +564,5 @@ def compute_diff(
         semantic_scores=sem,
         semantic_reasons=reasons,
         failed_checks=failed,
+        model_tools_diff=model_tools_msg,
     )

@@ -53,6 +53,10 @@ class AgentRegressionError(Exception):
                 lines.append(f'  "{r.structural_reason}"')
             lines.append("")
 
+        if r.model_tools_diff:
+            lines.append(f"[MODEL TOOLS] {r.model_tools_diff}")
+            lines.append("")
+
         for name, diff in (r.argument_diffs or {}).items():
             lines.append(f"[ARGS] {name}:")
             if isinstance(diff, dict):
@@ -64,7 +68,18 @@ class AgentRegressionError(Exception):
                     lines.append(f"  - {field}: {val!r}")
                 for key, value in diff.items():
                     if key not in ("changed", "added", "removed", "old", "new"):
-                        lines.append(f"  {key}: {_excerpt(repr(value))}")
+                        if isinstance(value, dict) and value and all(
+                            isinstance(v, dict) and "old_value" in v and "new_value" in v
+                            for v in value.values()
+                        ):
+                            lines.append(f"  {key}:")
+                            for path, pair in value.items():
+                                lines.append(
+                                    f"    {path}: {_excerpt(repr(pair['old_value']))} "
+                                    f"-> {_excerpt(repr(pair['new_value']))}"
+                                )
+                        else:
+                            lines.append(f"  {key}: {_excerpt(repr(value))}")
             else:
                 lines.append(f"  {diff}")
             lines.append("")

@@ -9,6 +9,7 @@ from agentsnap.core.diff import (
     _cosine_similarity,
     argument_diffs,
     compute_diff,
+    model_tool_diffs,
     semantic_scores,
     structural_diff,
 )
@@ -589,3 +590,100 @@ def test_compute_diff_compare_llm_requests_passes_when_identical():
         config=DiffConfig(compare_llm_requests=True),
     )
     assert report.passed
+
+
+# ── Model-requested tool comparison ──────────────────────────────────────────
+
+def _llm_with_tools(tool_requests, response="r"):
+    return {"step": 0, "type": "llm_call", "messages": [], "response": response,
+            "tokens": 1, "tool_requests": tool_requests}
+
+
+def test_model_tool_diffs_gate_skips_when_old_side_lacks_key():
+    old_trace = [{"step": 0, "type": "llm_call", "messages": [], "response": "r", "tokens": 1}]
+    new_trace = [_llm_with_tools([{"name": "search", "args": {"q": "x"}}])]
+    msg, dist, arg_diffs = model_tool_diffs(old_trace, new_trace)
+    assert (msg, dist, arg_diffs) == (None, 0, {})
+
+
+def test_model_tool_diffs_gate_skips_when_new_side_lacks_key():
+    old_trace = [_llm_with_tools([{"name": "search", "args": {"q": "x"}}])]
+    new_trace = [{"step": 0, "type": "llm_call", "messages": [], "response": "r", "tokens": 1}]
+    msg, dist, arg_diffs = model_tool_diffs(old_trace, new_trace)
+    assert (msg, dist, arg_diffs) == (None, 0, {})
+
+
+def test_model_tool_diffs_gate_skipped_compute_diff_passes():
+    """Old-format snapshot (no tool_requests key) must keep passing untouched."""
+    old_trace = [{"step": 0, "type": "llm_call", "messages": [], "response": "same", "tokens": 1}]
+    snapshot = _make_snapshot(trace=old_trace, output="same output")
+    new_trace = [_llm_with_tools([{"name": "delete_file", "args": {}}], response="same")]
+    report = compute_diff(snapshot, new_trace, "same output",
+                          config=DiffConfig(semantic_threshold=0.92),
+                          embed_fn=_identical_embed)
+    assert report.model_tools_diff is None
+    assert "model_tools" not in report.failed_checks
+    assert "model_tool_args" not in report.failed_checks
+
+
+def test_model_tool_diffs_identical_sequences_and_args():
+    trace = [_llm_with_tools([{"name": "search", "args": {"q": "x"}}])]
+    msg, dist, arg_diffs = model_tool_diffs(trace, trace)
+    assert msg is None
+    assert dist == 0
+    assert arg_diffs == {}
+
+
+def test_model_tool_diffs_swapped_name():
+    old_trace = [_llm_with_tools([{"name": "search", "args": {}}])]
+    new_trace = [_llm_with_tools([{"name": "delete_file", "args": {}}])]
+    msg, dist, arg_diffs = model_tool_diffs(old_trace, new_trace)
+    assert msg is not None
+    assert "edit distance 1" in msg
+    assert dist == 1
+
+
+def test_compute_diff_swapped_model_tool_fails():
+    old_trace = [_llm_with_tools([{"name": "search", "args": {}}], response="same")]
+    new_trace = [_llm_with_tools([{"name": "delete_file", "args": {}}], response="same")]
+    snapshot = _make_snapshot(trace=old_trace, output="same output")
+    report = compute_diff(snapshot, new_trace, "same output",
+                          config=DiffConfig(semantic_threshold=0.92),
+                          embed_fn=_identical_embed)
+    assert not report.passed
+    assert "model_tools" in report.failed_checks
+    assert "edit distance 1" in report.model_tools_diff
+
+
+def test_compute_diff_structural_tolerance_absorbs_model_tool_swap():
+    old_trace = [_llm_with_tools([{"name": "search", "args": {}}], response="same")]
+    new_trace = [_llm_with_tools([{"name": "delete_file", "args": {}}], response="same")]
+    snapshot = _make_snapshot(trace=old_trace, output="same output")
+    report = compute_diff(snapshot, new_trace, "same output",
+                          config=DiffConfig(semantic_threshold=0.92, structural_tolerance=1),
+                          embed_fn=_identical_embed)
+    assert "model_tools" not in report.failed_checks
+    # message is still populated on the report even though the tolerance absorbed it
+    assert report.model_tools_diff is not None
+    assert "edit distance 1" in report.model_tools_diff
+
+
+def test_model_tool_diffs_changed_args():
+    old_trace = [_llm_with_tools([{"name": "search", "args": {"q": "old"}}])]
+    new_trace = [_llm_with_tools([{"name": "search", "args": {"q": "new"}}])]
+    msg, dist, arg_diffs = model_tool_diffs(old_trace, new_trace)
+    assert msg is None
+    assert dist == 0
+    assert "model_tool:search[0]" in arg_diffs
+
+
+def test_compute_diff_changed_model_tool_args_fails_without_model_tools():
+    old_trace = [_llm_with_tools([{"name": "search", "args": {"q": "old"}}], response="same")]
+    new_trace = [_llm_with_tools([{"name": "search", "args": {"q": "new"}}], response="same")]
+    snapshot = _make_snapshot(trace=old_trace, output="same output")
+    report = compute_diff(snapshot, new_trace, "same output",
+                          config=DiffConfig(semantic_threshold=0.92),
+                          embed_fn=_identical_embed)
+    assert "model_tool:search[0]" in report.argument_diffs
+    assert "model_tool_args" in report.failed_checks
+    assert "model_tools" not in report.failed_checks

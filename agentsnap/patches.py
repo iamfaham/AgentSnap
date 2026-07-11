@@ -15,8 +15,12 @@ from agentsnap.adapters.openai import (
     AsyncOpenAIRecordingStream,
     OpenAIRecordingStream,
     dump_raw as _openai_dump_raw,
+    extract_responses_text as _openai_extract_responses_text,
+    extract_responses_tool_requests as _openai_extract_responses_tool_requests,
     extract_tool_requests as _openai_extract_tool_requests,
+    normalize_responses_input as _openai_normalize_responses_input,
     reconstruct_event as _openai_reconstruct_event,
+    reconstruct_response_event as _openai_reconstruct_response_event,
     replay_stream as _openai_replay_stream,
     replay_stream_async as _openai_replay_stream_async,
 )
@@ -306,6 +310,122 @@ def _apply_openai_async() -> list[tuple]:
     return [(AsyncCompletions, "create", original)]
 
 
+def _apply_openai_responses() -> list[tuple]:
+    from openai.resources.responses.responses import Responses
+
+    original = Responses.create
+
+    def _interceptor(self, *args, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return original(self, *args, **kwargs)
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            pushed = {
+                "type": "llm_call",
+                "messages": _openai_normalize_responses_input(kwargs),
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            return _openai_reconstruct_response_event(event)
+
+        if kwargs.get("stream"):
+            # Streamed Responses API runs pass through unrecorded this release —
+            # a documented limitation (no stream recordings exist for responses).
+            return original(self, *args, **kwargs)
+
+        messages = _openai_normalize_responses_input(kwargs)
+        response = original(self, *args, **kwargs)
+        usage = getattr(response, "usage", None)
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": _openai_extract_responses_text(response),
+                "tokens": getattr(usage, "total_tokens", 0) or 0,
+                "raw_response": _openai_dump_raw(response),
+                "tool_requests": _openai_extract_responses_tool_requests(response),
+            }
+        )
+        return response
+
+    Responses.create = _interceptor
+    return [(Responses, "create", original)]
+
+
+def _apply_openai_responses_async() -> list[tuple]:
+    from openai.resources.responses.responses import AsyncResponses
+
+    original = AsyncResponses.create
+
+    async def _interceptor(self, *args, **kwargs):
+        acc = TraceAccumulator.current()
+        if acc is None:
+            return await original(self, *args, **kwargs)
+
+        if acc.replay is not None:
+            event = acc.replay.next_llm_event()
+            pushed = {
+                "type": "llm_call",
+                "messages": _openai_normalize_responses_input(kwargs),
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
+            raw = event.get("raw_response")
+            is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
+            wants_stream = bool(kwargs.get("stream"))
+            if wants_stream != bool(is_stream_recording):
+                raise ReplayError(
+                    f"Replay shape mismatch at llm_call step {event.get('step', '?')}: "
+                    f"the snapshot recorded a {'streaming' if is_stream_recording else 'non-streaming'} call "
+                    f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
+                    "Re-record the golden: pytest --agentsnap-record"
+                )
+            return _openai_reconstruct_response_event(event)
+
+        if kwargs.get("stream"):
+            # Streamed Responses API runs pass through unrecorded this release —
+            # a documented limitation (no stream recordings exist for responses).
+            return await original(self, *args, **kwargs)
+
+        messages = _openai_normalize_responses_input(kwargs)
+        response = await original(self, *args, **kwargs)
+        usage = getattr(response, "usage", None)
+        acc.push(
+            {
+                "type": "llm_call",
+                "messages": messages,
+                "response": _openai_extract_responses_text(response),
+                "tokens": getattr(usage, "total_tokens", 0) or 0,
+                "raw_response": _openai_dump_raw(response),
+                "tool_requests": _openai_extract_responses_tool_requests(response),
+            }
+        )
+        return response
+
+    AsyncResponses.create = _interceptor
+    return [(AsyncResponses, "create", original)]
+
+
 # ── Gemini (google-genai >= 1.0) ───────────────────────────────────────────────
 
 def _apply_gemini() -> list[tuple]:
@@ -435,6 +555,8 @@ _PATCHER_FNS = [
     _apply_openai,
     _apply_anthropic_async,
     _apply_openai_async,
+    _apply_openai_responses,
+    _apply_openai_responses_async,
     _apply_gemini,
     _apply_cohere,
     _apply_mistral,

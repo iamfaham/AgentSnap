@@ -26,6 +26,43 @@ def extract_tool_requests(response) -> list[dict]:
     return requests
 
 
+def extract_responses_text(response) -> str:
+    """Extract the assembled output text from a Responses API response."""
+    return getattr(response, "output_text", "") or ""
+
+
+def extract_responses_tool_requests(response) -> list[dict]:
+    """Extract model-requested function calls from a Responses API response."""
+    requests = []
+    output = getattr(response, "output", None) or []
+    for item in output:
+        if getattr(item, "type", "") != "function_call":
+            continue
+        name = getattr(item, "name", None)
+        arguments = getattr(item, "arguments", None)
+        try:
+            args = json.loads(arguments)
+        except (TypeError, ValueError):
+            args = arguments
+        requests.append({"name": name, "args": args})
+    return requests
+
+
+def normalize_responses_input(kwargs: dict) -> list[dict]:
+    """Normalize Responses API kwargs into a chat-style messages list."""
+    raw_input = kwargs.get("input")
+    if isinstance(raw_input, str):
+        messages = [{"role": "user", "content": raw_input}]
+    elif isinstance(raw_input, list):
+        messages = list(raw_input)
+    else:
+        messages = []
+    instructions = kwargs.get("instructions")
+    if instructions:
+        messages = [{"role": "system", "content": instructions}] + messages
+    return messages
+
+
 def dump_raw(response) -> dict | None:
     """Serialize a provider response for replay. None if the object can't dump."""
     dump = getattr(response, "model_dump", None)
@@ -53,6 +90,28 @@ def reconstruct_event(event: dict):
     """Rebuild the recorded response for a replayed event, with a clear error on failure."""
     try:
         return reconstruct(event["raw_response"])
+    except ReplayError:
+        raise
+    except Exception as e:
+        raise ReplayError(
+            f"Failed to reconstruct the recorded response for llm_call step "
+            f"{event.get('step', '?')} — the snapshot may be corrupt or recorded "
+            f"under a different SDK version ({e}). "
+            "Re-record the golden: pytest --agentsnap-record"
+        ) from e
+
+
+def reconstruct_response(raw: dict):
+    """Rebuild an openai Responses API Response object from a recorded raw_response dict."""
+    from openai.types.responses import Response
+
+    return Response.model_validate(raw)
+
+
+def reconstruct_response_event(event: dict):
+    """Rebuild the recorded Responses API response for a replayed event, with a clear error on failure."""
+    try:
+        return reconstruct_response(event["raw_response"])
     except ReplayError:
         raise
     except Exception as e:

@@ -66,11 +66,13 @@ class AgentRecorder:
         snapshot_dir: str = DEFAULT_SNAPSHOT_DIR,
         model: str = "unknown",
         scenario: str | None = None,
+        result_sink: list | None = None,
     ) -> None:
         self.test_name = test_name
         self.snapshot_dir = snapshot_dir
         self.model = model
         self.scenario = scenario
+        self.result_sink = result_sink
         self.input_data: Any = None
         self.output: str = ""
         self._accumulator: TraceAccumulator | None = None
@@ -103,6 +105,13 @@ class AgentRecorder:
                 self.output,
                 scenario=self._resolved_scenario(),
             )
+            if self.result_sink is not None:
+                self.result_sink.append({
+                    "test_name": self.test_name,
+                    "mode": "record",
+                    "passed": None,
+                    "summary": "recorded golden run",
+                })
         return False
 
     async def __aenter__(self) -> "AgentRecorder":

@@ -214,10 +214,36 @@ def test_pytester_terminal_summary_shows_recorded_then_passed(pytester: pytest.P
     record_result = pytester.runpytest()
     record_result.assert_outcomes(passed=1)
     record_result.stdout.fnmatch_lines(["*agentsnap snapshots*", "*RECORDED*"])
+    # Exactly one RECORDED entry: the recorder itself emits it now (no double
+    # append from _AutoContext, which used to append its own entry too).
+    recorded_lines = [
+        line for line in record_result.outlines if "RECORDED" in line and "flag_e2e" in line
+    ]
+    assert len(recorded_lines) == 1
 
     assert_result = pytester.runpytest()
     assert_result.assert_outcomes(passed=1)
     assert_result.stdout.fnmatch_lines(["*agentsnap snapshots*", "*PASSED*flag_e2e*"])
+
+
+def test_pytester_record_agent_shows_recorded_in_summary(pytester: pytest.Pytester) -> None:
+    """snapshot.record_agent() (explicit record mode) also feeds the terminal summary."""
+    pytester.makeconftest("")
+    pytester.makepyfile(
+        test_explicit_rec="""
+        def test_agent(snapshot):
+            with snapshot.record_agent("explicit_rec") as rec:
+                rec.output = "constant output"
+        """
+    )
+
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*agentsnap snapshots*", "*RECORDED*explicit_rec*"])
+    recorded_lines = [
+        line for line in result.outlines if "RECORDED" in line and "explicit_rec" in line
+    ]
+    assert len(recorded_lines) == 1
 
 
 def test_pytester_terminal_summary_shows_failed(pytester: pytest.Pytester) -> None:

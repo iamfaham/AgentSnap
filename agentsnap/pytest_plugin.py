@@ -114,13 +114,11 @@ class _AutoContext:
         recorder: AgentRecorder,
         asserter: AgentAsserter,
         is_record: bool,
-        result_sink: list | None = None,
     ) -> None:
         self._test_name = test_name
         self._recorder = recorder
         self._asserter = asserter
         self._is_record = is_record
-        self._result_sink = result_sink
         self._ctx = None
 
     def __enter__(self) -> _AutoContext:
@@ -133,15 +131,7 @@ class _AutoContext:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        result = (self._recorder if self._is_record else self._asserter).__exit__(exc_type, exc_val, exc_tb)
-        if self._is_record and exc_type is None and self._result_sink is not None:
-            self._result_sink.append({
-                "test_name": self._test_name,
-                "mode": "record",
-                "passed": None,
-                "summary": "recorded golden run",
-            })
-        return result
+        return (self._recorder if self._is_record else self._asserter).__exit__(exc_type, exc_val, exc_tb)
 
     @property
     def output(self) -> str:
@@ -221,15 +211,21 @@ class SnapshotFixture:
         """
         snap_exists = snapshot_path(test_name, self.snapshot_dir, scenario=scenario).exists()
         is_record = not snap_exists or self.force_record
-        recorder = AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario)
+        recorder = AgentRecorder(
+            test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario,
+            result_sink=self.result_sink,
+        )
         asserter = self._make_asserter(test_name, semantic_threshold, llm_threshold, ignored_fields,
                                        judge, scenario=scenario, structural_tolerance=structural_tolerance,
                                        mode=mode, replay_tools=replay_tools)
-        return _AutoContext(test_name, recorder, asserter, is_record=is_record, result_sink=self.result_sink)
+        return _AutoContext(test_name, recorder, asserter, is_record=is_record)
 
     def record_agent(self, test_name: str, model: str = "unknown", scenario: str | None = None) -> AgentRecorder:
         """Explicit record mode."""
-        return AgentRecorder(test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario)
+        return AgentRecorder(
+            test_name, snapshot_dir=self.snapshot_dir, model=model, scenario=scenario,
+            result_sink=self.result_sink,
+        )
 
     def assert_agent(
         self,

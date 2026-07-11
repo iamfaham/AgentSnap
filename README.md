@@ -378,6 +378,11 @@ def test_agent(snapshot):
         a.output = run_agent(...)
 ```
 
+Every `snapshot.run()` / `record_agent()` / `assert_agent()` use feeds a terminal
+summary section ("agentsnap snapshots") printed at the end of the pytest run.
+**Known limitation:** under `pytest-xdist`, this summary is per-worker and is
+not aggregated across workers — run without `-n` if you need the full picture.
+
 ### Pytest flags
 
 | Flag | Description |

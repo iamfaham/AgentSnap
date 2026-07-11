@@ -77,6 +77,8 @@ Every adapter checks `TraceAccumulator.current()`, forwards the real call, pushe
 
    `semantic_scores()` returns a `(scores: dict, reasons: dict)` tuple. `compute_diff()` accepts both `embed_fn` (for testing stubs) and `judge` parameters.
 
+**Model tool decisions** — non-streaming Anthropic/OpenAI `llm_call` events also record `tool_requests` (the model's own `tool_use` blocks, `{"name", "args"}`); `model_tool_diffs()` in `core/diff.py` fails `model_tools`/`model_tool_args` when it drifts, gated on both sides of the diff carrying the key so pre-existing snapshots are unaffected.
+
 **Configuration** (`config.py`) — `config.load()` merges: built-in defaults < `[tool.agentsnap]` in the nearest `pyproject.toml` < environment variables. `judge_from_env()` returns a configured `LLMJudge` or `None`. `LLMJudge.from_env()` is the public alias.
 
 **pytest plugin** — registered via `pytest11` entry point. `pytest_addoption()` exposes `agentsnap_*` ini keys. The `snapshot` fixture reads config, builds an `LLMJudge` if `AGENTSNAP_JUDGE_API_KEY` is set, and passes it as the default to `assert_agent()`. Per-test overrides always win. Pass `judge=False` to force embeddings even when a key is set.

@@ -14,14 +14,15 @@ This guide walks through everything you need to use agentsnap effectively — fr
 6. [Zero-instrumentation with PatchSet](#zero-instrumentation-with-patchset)
 7. [Using adapters (alternative)](#using-adapters-alternative)
 8. [Replay vs live mode](#replay-vs-live-mode)
-9. [pytest integration](#pytest-integration)
-10. [LangGraph](#langgraph)
-11. [Reviewing and approving changes](#reviewing-and-approving-changes)
-12. [Configuration](#configuration)
-13. [Understanding diff results](#understanding-diff-results)
-14. [Tuning thresholds](#tuning-thresholds)
-15. [LLM judge](#llm-judge)
-16. [CI setup](#ci-setup)
+9. [Model tool decisions](#model-tool-decisions)
+10. [pytest integration](#pytest-integration)
+11. [LangGraph](#langgraph)
+12. [Reviewing and approving changes](#reviewing-and-approving-changes)
+13. [Configuration](#configuration)
+14. [Understanding diff results](#understanding-diff-results)
+15. [Tuning thresholds](#tuning-thresholds)
+16. [LLM judge](#llm-judge)
+17. [CI setup](#ci-setup)
 
 ---
 
@@ -31,11 +32,12 @@ agentsnap works in two phases:
 
 **Record** — Run your agent once with agentsnap active. It intercepts every LLM call and tool call, records the inputs and outputs into a JSON snapshot file, and saves it alongside your code. Commit this file — it is the contract for what the agent does.
 
-**Assert** — On every subsequent run (in CI, in tests, locally), agentsnap replays the same execution and compares the new trace against the committed snapshot across three layers:
+**Assert** — On every subsequent run (in CI, in tests, locally), agentsnap replays the same execution and compares the new trace against the committed snapshot across four layers:
 
 1. **Structural** — Did the tool sequence change? (e.g. added a step, skipped a step, reordered)
 2. **Arguments** — Did the arguments to tool calls change?
-3. **Semantic** — Did the LLM responses or final output drift in meaning?
+3. **Model tools** — Did the tool sequence the *model itself* requested change, even if your code's own tool calls didn't?
+4. **Semantic** — Did the LLM responses or final output drift in meaning?
 
 If anything drifts beyond its threshold, agentsnap raises `AgentRegressionError` with a detailed report of exactly what changed.
 
@@ -323,6 +325,30 @@ Not yet supported: the `client.messages.stream()` context-manager helper, and as
 A stream that is never iterated and never closed is finalized automatically at recorder/asserter exit, but consuming or closing it promptly is still recommended so events appear in call order.
 
 See `examples/demo_streaming.py` for a full runnable walkthrough of recording and replaying a streaming agent.
+
+---
+
+## Model tool decisions
+
+agentsnap also captures which tool the **model itself** decided to call, separately from whichever tools your code actually executed. Every non-streaming Anthropic/OpenAI `llm_call` event records a `tool_requests` list — the `tool_use` blocks the model returned, each as `{"name": ..., "args": {...}}`. Groq and OpenRouter inherit this since they subclass `OpenAIAdapter`.
+
+On assert, agentsnap compares the model's requested tool sequence and fails `model_tools` if it changed, or `model_tool_args` if the same tool was requested with different arguments. This is surfaced in the report as `[MODEL TOOLS] ...`, and catches drift your code would otherwise never see — for example a model update or a prompt injection that causes the model to *ask* for a different tool, even while your agent's own tool-calling logic stays exactly the same.
+
+```
+[MODEL TOOLS] Model-requested tool sequence changed (edit distance 1): ['search'] -> ['delete_file']
+
+[ARGS] model_tool:search[0]:
+  args: {'query': 'capital of France'} -> {'path': '/etc/passwd'}
+
+Failed checks: ['model_tools', 'model_tool_args']
+```
+
+Notes:
+- Backward compatible: the comparison only engages when **both** the old and new trace carry `tool_requests` on their `llm_call` events. Snapshots recorded before this feature was added skip the check silently — old goldens never fail from the new surface.
+- Streamed responses don't assemble `tool_requests` yet, so streamed `llm_call` events are also skipped by this check.
+- Scope today: non-streaming Anthropic and OpenAI calls, plus Groq/OpenRouter via inheritance.
+
+See `examples/demo_tool_use.py` for a full runnable walkthrough: record a golden run where the model requests `search`, replay it unchanged, then watch agentsnap catch the model requesting `delete_file` instead.
 
 ---
 

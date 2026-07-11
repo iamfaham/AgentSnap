@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-07-11
+
+### Added
+
+- **Model tool-decision capture** — non-streaming Anthropic and OpenAI `llm_call` events now record `tool_requests`: the `tool_use`/`tool_calls` blocks the model itself returned (`{"name": ..., "args": {...}}`), independent of whichever tools your code actually executed. Groq and OpenRouter get this for free via `OpenAIAdapter` inheritance.
+- The diff engine compares `tool_requests` across runs and fails `model_tools` (Levenshtein edit distance on the model's requested tool sequence) or `model_tool_args` (per-request argument drift), reported as `[MODEL TOOLS] ...` in `AgentRegressionError`. The check is gated on both the old and new trace carrying `tool_requests`, so snapshots recorded before this feature — and streamed events, which don't assemble it yet — are unaffected.
+- `examples/demo_tool_use.py`: a runnable walkthrough of a model swapping its requested tool (`search` -> `delete_file`) getting caught even though the code's own tool sequence and final output are unchanged.
+- `snapshot.record_agent()` (explicit record mode) now feeds the same "agentsnap snapshots" terminal summary as `run()`/`assert_agent()`, instead of being invisible to it.
+
+### Changed
+
+- Argument diffs render per-path when `deepdiff` produces a `values_changed`-style mapping, instead of dumping the raw deepdiff object.
+
+### Fixed
+
+- **Known limitation, documented, not fixed:** the pytest terminal summary is per-worker under `pytest-xdist` and is not aggregated across workers — run without `-n` if you need the full picture in one place.
+
 ## [0.2.1] - 2026-07-10
 
 ### Added

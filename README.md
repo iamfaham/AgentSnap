@@ -7,12 +7,13 @@
 
 Deterministic snapshot testing for AI agents.
 
-`agentsnap` records your agent's LLM and tool calls during a **golden run** and produces a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across three dimensions:
+`agentsnap` records your agent's LLM and tool calls during a **golden run** and produces a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across four dimensions:
 
 | Dimension | What it checks | How |
 |-----------|----------------|-----|
 | **Structural** | Tool call names and order | Levenshtein edit distance on the tool sequence |
 | **Arguments** | Tool call arguments | `deepdiff` (if installed) or plain dict diff, with configurable ignored fields |
+| **Model tools** | Which tool the *model itself* requested (not just what your code executed) | Levenshtein edit distance on `tool_requests`, plus per-request argument diffs |
 | **Semantic** | LLM responses and final output | Cosine similarity via `all-MiniLM-L6-v2`, or an LLM judge for higher accuracy |
 
 If any dimension drifts beyond its threshold, `agentsnap` raises `AgentRegressionError` with a structured diff report.
@@ -192,6 +193,43 @@ and async streams. Mistral still forces `stream=False` on every call. See
 A stream that is never iterated and never closed is finalized automatically
 at recorder/asserter exit, but consuming or closing it promptly is still
 recommended so events appear in call order.
+
+---
+
+## Model tool decisions
+
+Beyond the tools your code actually executes, agentsnap also captures which
+tool the **model** decided to call. Every non-streaming Anthropic/OpenAI
+`llm_call` event records a `tool_requests` list — the `tool_use` blocks the
+model returned, each as `{"name": ..., "args": {...}}`. Groq and OpenRouter
+get this for free since they subclass `OpenAIAdapter`.
+
+On assert, agentsnap compares the model's requested tool sequence (not just
+what your code executed) and fails `model_tools` if it changed, or
+`model_tool_args` if the same tool was requested with different arguments —
+surfaced in the report as `[MODEL TOOLS] ...`. This catches a model quietly
+choosing a different tool than the golden run even when your code's own
+tool-calling logic is untouched (a model update, a prompt injection, a
+provider-side regression).
+
+```
+[MODEL TOOLS] Model-requested tool sequence changed (edit distance 1): ['search'] -> ['delete_file']
+
+[ARGS] model_tool:search[0]:
+  args: {'query': 'capital of France'} -> {'path': '/etc/passwd'}
+
+Failed checks: ['model_tools', 'model_tool_args']
+```
+
+Backward compatible: the comparison only engages when **both** sides of the
+diff carry `tool_requests`. Snapshots recorded before this feature (or
+streamed events, which don't assemble `tool_requests` yet) skip the check
+silently — old goldens never fail from the new surface.
+
+Scope today: non-streaming Anthropic and OpenAI calls, plus Groq/OpenRouter
+via inheritance. Streamed `tool_use` assembly is not captured yet.
+
+See `examples/demo_tool_use.py` for a full runnable walkthrough.
 
 ---
 

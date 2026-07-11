@@ -1,7 +1,29 @@
 from __future__ import annotations
 
+import json
+
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
+
+
+def extract_tool_requests(response) -> list[dict]:
+    """Extract model-requested tool_calls from an OpenAI ChatCompletion response."""
+    requests = []
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return requests
+    message = getattr(choices[0], "message", None)
+    tool_calls = getattr(message, "tool_calls", None) or []
+    for tc in tool_calls:
+        function = getattr(tc, "function", None)
+        name = getattr(function, "name", None)
+        arguments = getattr(function, "arguments", None)
+        try:
+            args = json.loads(arguments)
+        except (TypeError, ValueError):
+            args = arguments
+        requests.append({"name": name, "args": args})
+    return requests
 
 
 def dump_raw(response) -> dict | None:
@@ -163,15 +185,16 @@ class _CompletionsProxy:
 
         if acc.replay is not None:
             event = acc.replay.next_llm_event()
-            acc.push(
-                {
-                    "type": "llm_call",
-                    "messages": messages,
-                    "response": event.get("response", ""),
-                    "tokens": event.get("tokens", 0),
-                    "raw_response": event.get("raw_response"),
-                }
-            )
+            pushed = {
+                "type": "llm_call",
+                "messages": messages,
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
             raw = event.get("raw_response")
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
@@ -210,6 +233,7 @@ class _CompletionsProxy:
                 "response": response_text,
                 "tokens": tokens,
                 "raw_response": dump_raw(response),
+                "tool_requests": extract_tool_requests(response),
             }
         )
         return response

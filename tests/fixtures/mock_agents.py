@@ -17,20 +17,48 @@ class MockUsage:
         self.output_tokens = output_tokens
 
 
+class MockToolUseBlock:
+    def __init__(self, name: str, input: dict, id: str) -> None:
+        self.type = "tool_use"
+        self.name = name
+        self.input = input
+        self.id = id
+
+
 class MockAnthropicResponse:
-    def __init__(self, text: str, model: str = "claude-mock") -> None:
+    def __init__(
+        self,
+        text: str,
+        model: str = "claude-mock",
+        tool_uses: list[tuple[str, dict]] | None = None,
+    ) -> None:
         self.content = [MockTextBlock(text)]
         self.model = model
         self.usage = MockUsage()
+        self._tool_uses = tool_uses or []
+        for i, (name, input_dict) in enumerate(self._tool_uses):
+            self.content.append(
+                MockToolUseBlock(name, input_dict, id=f"toolu_mock{i}")
+            )
 
     def model_dump(self, mode: str = "python") -> dict:
         """Anthropic-Message-shaped dict so recorded snapshots are replayable."""
+        content = [{"type": "text", "text": self.content[0].text}]
+        for i, (name, input_dict) in enumerate(self._tool_uses):
+            content.append(
+                {
+                    "type": "tool_use",
+                    "id": f"toolu_mock{i}",
+                    "name": name,
+                    "input": input_dict,
+                }
+            )
         return {
             "id": "msg_mock",
             "type": "message",
             "role": "assistant",
             "model": self.model,
-            "content": [{"type": "text", "text": block.text} for block in self.content],
+            "content": content,
             "stop_reason": "end_turn",
             "stop_sequence": None,
             "usage": {

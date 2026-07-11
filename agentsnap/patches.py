@@ -5,12 +5,14 @@ import warnings
 from agentsnap.adapters.anthropic import (
     AnthropicRecordingStream,
     dump_raw as _anthropic_dump_raw,
+    extract_tool_requests as _anthropic_extract_tool_requests,
     reconstruct_event as _anthropic_reconstruct_event,
     replay_stream as _anthropic_replay_stream,
 )
 from agentsnap.adapters.openai import (
     OpenAIRecordingStream,
     dump_raw as _openai_dump_raw,
+    extract_tool_requests as _openai_extract_tool_requests,
     reconstruct_event as _openai_reconstruct_event,
     replay_stream as _openai_replay_stream,
 )
@@ -43,15 +45,16 @@ def _apply_anthropic() -> list[tuple]:
 
         if acc.replay is not None:
             event = acc.replay.next_llm_event()
-            acc.push(
-                {
-                    "type": "llm_call",
-                    "messages": messages,
-                    "response": event.get("response", ""),
-                    "tokens": event.get("tokens", 0),
-                    "raw_response": event.get("raw_response"),
-                }
-            )
+            pushed = {
+                "type": "llm_call",
+                "messages": messages,
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
             raw = event.get("raw_response")
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
@@ -89,6 +92,7 @@ def _apply_anthropic() -> list[tuple]:
                 "response": text,
                 "tokens": tokens,
                 "raw_response": _anthropic_dump_raw(response),
+                "tool_requests": _anthropic_extract_tool_requests(response),
             }
         )
         return response
@@ -112,15 +116,16 @@ def _apply_openai() -> list[tuple]:
 
         if acc.replay is not None:
             event = acc.replay.next_llm_event()
-            acc.push(
-                {
-                    "type": "llm_call",
-                    "messages": messages,
-                    "response": event.get("response", ""),
-                    "tokens": event.get("tokens", 0),
-                    "raw_response": event.get("raw_response"),
-                }
-            )
+            pushed = {
+                "type": "llm_call",
+                "messages": messages,
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
             raw = event.get("raw_response")
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
@@ -154,6 +159,7 @@ def _apply_openai() -> list[tuple]:
                 "response": text,
                 "tokens": tokens,
                 "raw_response": _openai_dump_raw(response),
+                "tool_requests": _openai_extract_tool_requests(response),
             }
         )
         return response

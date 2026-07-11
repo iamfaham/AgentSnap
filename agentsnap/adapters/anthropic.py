@@ -4,6 +4,17 @@ from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
 
 
+def extract_tool_requests(response) -> list[dict]:
+    """Extract model-requested tool_use blocks from an Anthropic response."""
+    requests = []
+    for block in getattr(response, "content", []) or []:
+        if getattr(block, "type", "") != "tool_use":
+            continue
+        args = dict(block.input) if isinstance(block.input, dict) else block.input
+        requests.append({"name": block.name, "args": args})
+    return requests
+
+
 def dump_raw(response) -> dict | None:
     """Serialize a provider response for replay. None if the object can't dump."""
     dump = getattr(response, "model_dump", None)
@@ -177,15 +188,16 @@ class _MessagesProxy:
 
         if acc.replay is not None:
             event = acc.replay.next_llm_event()
-            acc.push(
-                {
-                    "type": "llm_call",
-                    "messages": messages,
-                    "response": event.get("response", ""),
-                    "tokens": event.get("tokens", 0),
-                    "raw_response": event.get("raw_response"),
-                }
-            )
+            pushed = {
+                "type": "llm_call",
+                "messages": messages,
+                "response": event.get("response", ""),
+                "tokens": event.get("tokens", 0),
+                "raw_response": event.get("raw_response"),
+            }
+            if "tool_requests" in event:
+                pushed["tool_requests"] = event["tool_requests"]
+            acc.push(pushed)
             raw = event.get("raw_response")
             is_stream_recording = isinstance(raw, dict) and raw.get("__stream__")
             wants_stream = bool(kwargs.get("stream"))
@@ -224,6 +236,7 @@ class _MessagesProxy:
                 "response": response_text,
                 "tokens": tokens,
                 "raw_response": dump_raw(response),
+                "tool_requests": extract_tool_requests(response),
             }
         )
         return response

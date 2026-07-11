@@ -25,6 +25,16 @@ def _clean_judge_env(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _offline_backend_installed(monkeypatch):
+    # The wizard's install-offer prompt fires only when sentence-transformers
+    # is NOT importable (true on CI, false on most dev machines), which would
+    # shift every scripted stdin feed by one answer. Pin the probe so these
+    # tests are environment-independent; tests exercising the prompt itself
+    # re-patch it to False.
+    monkeypatch.setattr("agentsnap.setup_wizard._offline_installed", lambda: True)
+
+
 # ── agentsnap init — offline path ─────────────────────────────────────────────
 
 def test_init_offline_no_predownload(tmp_path):

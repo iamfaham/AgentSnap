@@ -183,3 +183,27 @@ def test_write_last_run_with_result_round_trips(tmp_path):
     path = write_last_run("t1", snapshot_dir, "m", {}, _TRACE, "out", result=result)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["result"] == result
+
+
+def test_write_snapshot_omits_input_key_when_none(tmp_path):
+    from agentsnap.core.snapshot import read_snapshot, write_snapshot
+
+    write_snapshot("no_input", str(tmp_path), "m", None, [], "out")
+    assert "input" not in read_snapshot("no_input", str(tmp_path))
+
+
+def test_write_last_run_omits_input_key_when_none(tmp_path):
+    import json
+
+    from agentsnap.core.snapshot import last_run_path, write_last_run
+
+    write_last_run("no_input", str(tmp_path), "m", None, [], "out")
+    data = json.loads(last_run_path("no_input", str(tmp_path)).read_text(encoding="utf-8"))
+    assert "input" not in data
+
+
+def test_write_snapshot_keeps_input_when_set(tmp_path):
+    from agentsnap.core.snapshot import read_snapshot, write_snapshot
+
+    write_snapshot("with_input", str(tmp_path), "m", {"q": "x"}, [], "out")
+    assert read_snapshot("with_input", str(tmp_path))["input"] == {"q": "x"}

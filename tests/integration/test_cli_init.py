@@ -9,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from agentsnap.cli import cli
+from agentsnap.setup_wizard import WizardResult
 
 
 def _fake_sentence_transformers(monkeypatch):
@@ -53,6 +54,43 @@ def test_init_offline_with_predownload(tmp_path):
             )
     assert result.exit_code == 0, result.output
     mock_dl.assert_called_once()
+
+
+def test_init_offline_installs_backend_when_requested(tmp_path):
+    """When the wizard result carries install_offline=True, init runs pip install."""
+    canned = WizardResult(backend="offline", install_offline=True, pre_download_model=False)
+    runner = CliRunner()
+    with mock.patch("agentsnap.setup_wizard.run_wizard", return_value=canned):
+        with mock.patch("agentsnap.cli.subprocess.run") as mock_run:
+            mock_run.return_value = mock.Mock(returncode=0)
+            with runner.isolated_filesystem(temp_dir=tmp_path):
+                result = runner.invoke(
+                    cli,
+                    ["init"],
+                    input="n\n",  # [n] no example test (backend prompts skipped via mock)
+                    catch_exceptions=False,
+                )
+    assert result.exit_code == 0, result.output
+    mock_run.assert_called_once_with([sys.executable, "-m", "pip", "install", "agentsnap[offline]"])
+    assert "installed" in result.output.lower()
+
+
+def test_init_offline_install_failure_shows_manual_hint(tmp_path):
+    """If pip install fails, init prints the manual command but still exits 0."""
+    canned = WizardResult(backend="offline", install_offline=True, pre_download_model=False)
+    runner = CliRunner()
+    with mock.patch("agentsnap.setup_wizard.run_wizard", return_value=canned):
+        with mock.patch("agentsnap.cli.subprocess.run") as mock_run:
+            mock_run.return_value = mock.Mock(returncode=1)
+            with runner.isolated_filesystem(temp_dir=tmp_path):
+                result = runner.invoke(
+                    cli,
+                    ["init"],
+                    input="n\n",
+                    catch_exceptions=False,
+                )
+    assert result.exit_code == 0, result.output
+    assert "pip install agentsnap[offline]" in result.output
 
 
 def test_init_writes_pyproject_toml(tmp_path):

@@ -44,13 +44,14 @@ def write_snapshot(
     path = snapshot_path(test_name, snapshot_dir, scenario=scenario)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
-        "input": input_data,
         "model": model,
         "output": output,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "trace": trace,
         "version": SNAPSHOT_VERSION,
     }
+    if input_data is not None:
+        data["input"] = input_data
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     return path
 
@@ -68,13 +69,14 @@ def write_last_run(
     path = last_run_path(test_name, snapshot_dir, scenario=scenario)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
-        "input": input_data,
         "model": model,
         "output": output,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "trace": trace,
         "version": SNAPSHOT_VERSION,
     }
+    if input_data is not None:
+        data["input"] = input_data
     if result is not None:
         data["result"] = result
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")

@@ -206,6 +206,45 @@ def test_pytester_replay_and_live_flags_live_wins(pytester: pytest.Pytester) -> 
     assert _last_run_mode(pytester) == "live"
 
 
+def test_pytester_terminal_summary_shows_recorded_then_passed(pytester: pytest.Pytester) -> None:
+    """agentsnap terminal summary section appears with RECORDED then PASSED lines, no -s needed."""
+    pytester.makeconftest("")
+    pytester.makepyfile(test_flag_e2e=_STUB_TEST_SOURCE)
+
+    record_result = pytester.runpytest()
+    record_result.assert_outcomes(passed=1)
+    record_result.stdout.fnmatch_lines(["*agentsnap snapshots*", "*RECORDED*"])
+
+    assert_result = pytester.runpytest()
+    assert_result.assert_outcomes(passed=1)
+    assert_result.stdout.fnmatch_lines(["*agentsnap snapshots*", "*PASSED*flag_e2e*"])
+
+
+def test_pytester_terminal_summary_shows_failed(pytester: pytest.Pytester) -> None:
+    """A structural regression shows a FAILED line in the summary section, no -s needed.
+
+    Uses a tool rename (not an output change) so the failure is structural and
+    never touches a semantic backend inside the pytester environment.
+    """
+    pytester.makeconftest("")
+    tool_test = """
+    from agentsnap.adapters.tool import ToolAdapter
+
+    def test_agent(snapshot):
+        with snapshot.run("flag_e2e") as s:
+            tool = ToolAdapter(lambda **kw: "r", name="{name}")
+            tool(query="x")
+            s.output = "constant output"
+    """
+    pytester.makepyfile(test_flag_e2e=tool_test.replace("{name}", "search"))
+    pytester.runpytest().assert_outcomes(passed=1)  # record golden with tool 'search'
+
+    pytester.makepyfile(test_flag_e2e=tool_test.replace("{name}", "fetch"))
+    result = pytester.runpytest()  # renamed tool -> structural failure
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*agentsnap snapshots*", "*FAILED*flag_e2e*"])
+
+
 def test_pytester_ini_mode_replay_resolves_without_flags(pytester: pytest.Pytester) -> None:
     """agentsnap_mode = replay in ini resolves to replay mode with no CLI flags."""
     pytester.makeconftest("")

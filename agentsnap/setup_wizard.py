@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import time
 from dataclasses import dataclass
@@ -44,6 +45,7 @@ class WizardResult:
     api_key_env_var: str | None = None
     save_key_to_env: bool       = False
     pre_download_model: bool    = False
+    install_offline: bool       = False
 
 
 # -- Core logic (testable, no I/O) --------------------------------------------
@@ -136,6 +138,11 @@ def _hf_cache_dir() -> Path:
     return Path.home() / ".cache" / "huggingface" / "hub"
 
 
+def _offline_installed() -> bool:
+    """Return True if sentence-transformers is importable."""
+    return importlib.util.find_spec("sentence_transformers") is not None
+
+
 def check_offline_model() -> str | None:
     """Return the local cache path for all-MiniLM-L6-v2, or None if not cached."""
     cache = _hf_cache_dir()
@@ -185,11 +192,21 @@ def run_wizard() -> WizardResult:
 
     if backend_choice == "2":
         # Offline embeddings - explicit opt-in
+        install_offline = False
+        if not _offline_installed():
+            install_offline = click.confirm(
+                '\nInstall the offline embeddings backend now (pip install "agentsnap[offline]")?',
+                default=True,
+            )
         pre_download = click.confirm(
             "\nPre-download the embedding model now so tests don't pause on first run?",
             default=True,
         )
-        return WizardResult(backend="offline", pre_download_model=pre_download)
+        return WizardResult(
+            backend="offline",
+            pre_download_model=pre_download,
+            install_offline=install_offline,
+        )
 
     # -- LLM judge path (choice "1") -------------------------------------------
     click.echo("\nProvider:\n")

@@ -369,6 +369,7 @@ def init_cmd() -> None:
         click.echo(_write_example_test(project_dir))
 
     if result.backend == "offline":
+        installed_now = False
         if result.install_offline:
             click.echo('\nInstalling offline embeddings backend (pip install "agentsnap[offline]")...')
             proc = subprocess.run([sys.executable, "-m", "pip", "install", "agentsnap[offline]"])
@@ -378,11 +379,17 @@ def init_cmd() -> None:
                 )
             else:
                 click.echo("  Installed.")
-        elif not result.pre_download_model:
-            click.echo(
-                "\nModel will download on first test run (~22 MB)."
-                "\nNote: requires pip install agentsnap[offline] if not already installed."
-            )
+                installed_now = True
+                # A just-installed package may be invisible to the import
+                # system in this process without a cache refresh.
+                import importlib
+
+                importlib.invalidate_caches()
+        if not result.pre_download_model:
+            note = "\nModel will download on first test run (~22 MB)."
+            if not installed_now:
+                note += "\nNote: requires pip install agentsnap[offline] if not already installed."
+            click.echo(note)
 
         if result.pre_download_model:
             click.echo("\nDownloading all-MiniLM-L6-v2...")

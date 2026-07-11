@@ -119,7 +119,7 @@ class AgentAsserter:
             if self.result_sink is not None:
                 self.result_sink.append({
                     "test_name": self.test_name,
-                    "mode": self.mode,
+                    "mode": "record",  # consistent with _AutoContext's record entries
                     "passed": None,
                     "summary": "recorded golden run",
                 })

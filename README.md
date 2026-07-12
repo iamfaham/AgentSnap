@@ -4,8 +4,11 @@
 [![PyPI](https://img.shields.io/pypi/v/agentsnap)](https://pypi.org/project/agentsnap/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/agentsnap/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-site-blue)](https://iamfaham.github.io/AgentSnap/)
 
 Deterministic snapshot testing for AI agents.
+
+Full documentation, including guides and API reference, lives at **[iamfaham.github.io/AgentSnap](https://iamfaham.github.io/AgentSnap/)**.
 
 `agentsnap` records your agent's LLM and tool calls during a **golden run** and produces a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across four dimensions:
 

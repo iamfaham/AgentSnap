@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Real-framework verification** — `tests/frameworks/` exercises Pydantic AI, the OpenAI Agents SDK, and LangChain against agentsnap's `PatchSet` interception through an offline mock HTTP transport, run by a dedicated `frameworks` CI job (`pip install -e ".[dev,frameworks]"`); the main test matrix stays hermetic via `pytest.importorskip`.
 - `examples/demo_async.py`: a runnable walkthrough of recording an async agent, replaying it with zero live calls, and catching a prompt edit.
 - README/USAGE "Works with your framework" compatibility matrix.
+- Documentation site (MkDocs Material, deployed to GitHub Pages).
 
 ### Fixed
 

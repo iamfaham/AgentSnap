@@ -1,5 +1,7 @@
 # Using agentsnap
 
+> The [documentation site](https://iamfaham.github.io/AgentSnap/) is the maintained home of this content going forward.
+
 This guide walks through everything you need to use agentsnap effectively — from your first snapshot to CI integration and approving intentional changes.
 
 ---

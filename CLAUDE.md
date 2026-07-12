@@ -128,3 +128,5 @@ Integration tests (`tests/integration/`) use `MockAnthropicClient` / `MockAnthro
 | `ANTHROPIC_API_KEY` | Auto-used when `judge_base_url` contains `anthropic.com` |
 
 Key resolution is in `config._resolve_api_key()`. Add new entries to `_PROVIDER_KEY_MAP` in `config.py` to support additional providers.
+
+**Docs site** — source lives in `site-docs/` (repo `docs/` remains local-only, never committed); build with `mkdocs build --strict`; deployed by `.github/workflows/docs.yml`.

@@ -359,3 +359,33 @@ def test_reconstruct_response_event_corrupt_raises_replay_error_with_hint():
     message = str(exc_info.value)
     assert "3" in message
     assert "pytest --agentsnap-record" in message
+
+
+def test_reconstruct_response_lenient_on_schema_drift():
+    """A dump that fails strict validation (SDK schema evolution) still reconstructs."""
+    from agentsnap.adapters.openai import reconstruct_response
+
+    drifted = {
+        "id": "r1", "object": "response", "created_at": 1.0, "model": "m",
+        "parallel_tool_calls": True, "tool_choice": "auto", "tools": [],
+        "output": [{"type": "message", "id": "m1", "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": "hi", "annotations": []}]}],
+        # input_tokens_details lacks cache_write_tokens, required by newer schemas
+        "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3,
+                  "input_tokens_details": {"cached_tokens": 0},
+                  "output_tokens_details": {"reasoning_tokens": 0}},
+    }
+    resp = reconstruct_response(drifted)
+    assert resp.output_text == "hi"
+
+
+def test_reconstruct_response_still_rejects_garbage():
+    """The lenient fallback must not swallow genuinely corrupt payloads."""
+    import pytest as _pytest
+
+    from agentsnap.adapters.openai import reconstruct_response_event
+    from agentsnap.exceptions import ReplayError
+
+    with _pytest.raises(ReplayError, match="agentsnap-record"):
+        reconstruct_response_event({"step": 0, "raw_response": {"nonsense": True}})

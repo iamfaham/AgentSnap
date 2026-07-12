@@ -162,11 +162,31 @@ def dump_raw(response) -> dict | None:
         return None
 
 
+def _lenient_reconstruct(model_type, raw: dict, object_marker: str):
+    """Validate strictly first; fall back to the SDK's own lenient wire parsing.
+
+    SDK schema evolution can make a recorded dump fail strict validation
+    (e.g. a usage field that became required after the snapshot was taken).
+    `construct_type` is what the openai SDK itself uses to parse wire
+    responses, so it tolerates the same drift. The fallback engages only
+    when the payload carries the expected `object` marker — genuinely
+    corrupt data still raises, preserving the ReplayError path.
+    """
+    try:
+        return model_type.model_validate(raw)
+    except Exception:
+        if not (isinstance(raw, dict) and raw.get("object") == object_marker):
+            raise
+        from openai._models import construct_type
+
+        return construct_type(type_=model_type, value=raw)
+
+
 def reconstruct(raw: dict):
     """Rebuild an openai ChatCompletion object from a recorded raw_response dict."""
     from openai.types.chat import ChatCompletion
 
-    return ChatCompletion.model_validate(raw)
+    return _lenient_reconstruct(ChatCompletion, raw, "chat.completion")
 
 
 def reconstruct_event(event: dict):
@@ -188,7 +208,7 @@ def reconstruct_response(raw: dict):
     """Rebuild an openai Responses API Response object from a recorded raw_response dict."""
     from openai.types.responses import Response
 
-    return Response.model_validate(raw)
+    return _lenient_reconstruct(Response, raw, "response")
 
 
 def reconstruct_response_event(event: dict):

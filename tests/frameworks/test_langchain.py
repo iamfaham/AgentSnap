@@ -19,6 +19,7 @@ import httpx
 from langchain_openai import ChatOpenAI
 from openai.types.chat import ChatCompletion
 
+from agentsnap.core.asserter import AgentAsserter
 from agentsnap.core.recorder import AgentRecorder
 from agentsnap.core.snapshot import read_snapshot
 from agentsnap.patches import PatchSet
@@ -44,12 +45,7 @@ def _canned_payload(text: str) -> dict:
     return ChatCompletion.model_validate(d).model_dump(mode="json")
 
 
-def _make_chat(text: str) -> ChatOpenAI:
-    payload = _canned_payload(text)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=payload)
-
+def _make_chat_with_handler(handler) -> ChatOpenAI:
     sync_client = httpx.Client(transport=httpx.MockTransport(handler))
     async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return ChatOpenAI(
@@ -58,6 +54,26 @@ def _make_chat(text: str) -> ChatOpenAI:
         http_client=sync_client,
         http_async_client=async_client,
     )
+
+
+def _make_chat(text: str) -> ChatOpenAI:
+    payload = _canned_payload(text)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    return _make_chat_with_handler(handler)
+
+
+def _raising_handler(request: httpx.Request) -> httpx.Response:
+    raise AssertionError("live wire call made during replay — PatchSet should have short-circuited")
+
+
+def _identical_embed(texts):  # noqa: ARG001 - stub signature must match embed_fn contract
+    """Deterministic offline stand-in for the real embedder: byte-identical
+    outputs already short-circuit semantic scoring, but this guarantees the
+    replay test never loads sentence-transformers even if that changes."""
+    return [[1.0, 0.0] for _ in texts]
 
 
 # ── Sync path: .invoke() (pre-existing interception) ───────────────────────────
@@ -95,3 +111,28 @@ def test_langchain_async_ainvoke_records_llm_call(tmp_path):
     assert len(llm_calls) >= 1
     assert llm_calls[0]["response"] == "hi from langchain async"
     assert llm_calls[0]["raw_response"] is not None
+
+
+# ── Replay round-trip: recorded raw_response must reconstruct offline ──────────
+# This is the exact framework where the raw-response wrapper bug was found
+# (langchain-openai requests the raw HTTP response and calls .parse() itself),
+# so this test pins the fix end-to-end for both the sync and async transports.
+
+def test_langchain_replay_never_touches_wire(tmp_path):
+    chat = _make_chat("hi from langchain replay")
+
+    with PatchSet():
+        with AgentRecorder("lc_replay", snapshot_dir=str(tmp_path)) as rec:
+            result = chat.invoke("hi")
+            rec.output = result.content
+
+    # Replay: both transports raise if the wire is ever touched. If the
+    # recorded raw_response fails to reconstruct, agentsnap falls back to
+    # making a real call and this test fails with the AssertionError below.
+    replay_chat = _make_chat_with_handler(_raising_handler)
+    with PatchSet():
+        with AgentAsserter(
+            "lc_replay", snapshot_dir=str(tmp_path), mode="replay", embed_fn=_identical_embed
+        ) as a:
+            result = replay_chat.invoke("hi")
+            a.output = result.content

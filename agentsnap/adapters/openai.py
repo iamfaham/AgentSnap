@@ -85,6 +85,38 @@ def unwrap_legacy_response(response):
     return response
 
 
+def wants_raw_response(kwargs: dict) -> bool:
+    """True if the caller requested the SDK's raw-response wrapper.
+
+    langchain-openai (both sync and async) calls ``with_raw_response.create()``/
+    ``.parse()`` instead of ``create()`` directly, which the SDK implements by
+    stamping a special header on the request and having the transport return a
+    ``LegacyAPIResponse`` wrapper whose ``.parse()`` yields the real object.
+    """
+    extra_headers = kwargs.get("extra_headers") or {}
+    return extra_headers.get("X-Stainless-Raw-Response") == "true"
+
+
+class ReplayLegacyResponse:
+    """Minimal stand-in for OpenAI's ``LegacyAPIResponse`` during replay.
+
+    In replay mode no HTTP call is made, so there's no real LegacyAPIResponse
+    for a raw-response caller (e.g. langchain-openai's ``with_raw_response``)
+    to call ``.parse()`` on. This thin wrapper supplies just enough of that
+    surface: ``.parse()`` returns the reconstructed response, and any other
+    attribute access forwards to it.
+    """
+
+    def __init__(self, parsed) -> None:
+        self._parsed = parsed
+
+    def parse(self):
+        return self._parsed
+
+    def __getattr__(self, name):
+        return getattr(self._parsed, name)
+
+
 def dump_raw(response) -> dict | None:
     """Serialize a provider response for replay. None if the object can't dump."""
     dump = getattr(response, "model_dump", None)

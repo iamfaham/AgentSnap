@@ -24,6 +24,8 @@ from agentsnap.adapters.openai import (
     replay_stream as _openai_replay_stream,
     replay_stream_async as _openai_replay_stream_async,
     unwrap_legacy_response as _openai_unwrap_legacy_response,
+    wants_raw_response as _openai_wants_raw_response,
+    ReplayLegacyResponse as _OpenAIReplayLegacyResponse,
 )
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
@@ -216,11 +218,22 @@ def _apply_openai() -> list[tuple]:
                 )
             if is_stream_recording:
                 return _openai_replay_stream(raw["chunks"])
-            return _openai_reconstruct_event(event)
+            reconstructed = _openai_reconstruct_event(event)
+            # Callers that used with_raw_response (e.g. langchain-openai) expect
+            # a legacy-response-like object with .parse() back — there's no real
+            # LegacyAPIResponse in replay since no HTTP call was made.
+            if _openai_wants_raw_response(kwargs):
+                return _OpenAIReplayLegacyResponse(reconstructed)
+            return reconstructed
 
         if kwargs.get("stream"):
             response = original(self, *args, **kwargs)
-            return OpenAIRecordingStream(response, messages, acc)
+            # Some callers (e.g. langchain-openai) request the raw HTTP response
+            # and call .parse() themselves; unwrap so the tee iterates the real
+            # Stream object rather than the legacy wrapper. Identity for normal
+            # (already-parsed) streams.
+            stream = _openai_unwrap_legacy_response(response)
+            return OpenAIRecordingStream(stream, messages, acc)
 
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)
@@ -282,11 +295,21 @@ def _apply_openai_async() -> list[tuple]:
                 )
             if is_stream_recording:
                 return _openai_replay_stream_async(raw["chunks"])
-            return _openai_reconstruct_event(event)
+            reconstructed = _openai_reconstruct_event(event)
+            # Callers that used with_raw_response (e.g. langchain-openai) expect
+            # a legacy-response-like object with .parse() back — there's no real
+            # LegacyAPIResponse in replay since no HTTP call was made.
+            if _openai_wants_raw_response(kwargs):
+                return _OpenAIReplayLegacyResponse(reconstructed)
+            return reconstructed
 
         if kwargs.get("stream"):
             response = await original(self, *args, **kwargs)
-            return AsyncOpenAIRecordingStream(response, messages, acc)
+            # Unwrap a legacy raw-response wrapper (e.g. from langchain-openai)
+            # so the tee iterates the real async Stream object; identity-safe
+            # for already-parsed streams.
+            stream = _openai_unwrap_legacy_response(response)
+            return AsyncOpenAIRecordingStream(stream, messages, acc)
 
         kwargs["stream"] = False
         response = await original(self, *args, **kwargs)

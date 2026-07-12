@@ -66,6 +66,13 @@ def _raising_handler(request: httpx.Request) -> httpx.Response:
     raise AssertionError("live wire call made during replay — PatchSet should have short-circuited")
 
 
+def _identical_embed(texts):  # noqa: ARG001 - stub signature must match embed_fn contract
+    """Deterministic offline stand-in for the real embedder: byte-identical
+    outputs already short-circuit semantic scoring, but this guarantees the
+    replay tests never load sentence-transformers even if that changes."""
+    return [[1.0, 0.0] for _ in texts]
+
+
 def _wire_up_default_client(handler) -> None:
     """Install a custom AsyncOpenAI client (backed by an offline MockTransport)
     as the SDK's default client, and make sure tracing never phones home."""
@@ -111,6 +118,8 @@ def test_openai_agents_replay_never_touches_wire(tmp_path):
     _wire_up_default_client(_raising_handler)
     replay_agent = _make_agent()
     with PatchSet():
-        with AgentAsserter("oa_agents_replay", snapshot_dir=str(tmp_path), mode="replay") as a:
+        with AgentAsserter(
+            "oa_agents_replay", snapshot_dir=str(tmp_path), mode="replay", embed_fn=_identical_embed
+        ) as a:
             result = Runner.run_sync(replay_agent, "say hi")
             a.output = result.final_output

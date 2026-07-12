@@ -73,6 +73,13 @@ def _raising_handler(request: httpx.Request) -> httpx.Response:
     raise AssertionError("live wire call made during replay — PatchSet should have short-circuited")
 
 
+def _identical_embed(texts):  # noqa: ARG001 - stub signature must match embed_fn contract
+    """Deterministic offline stand-in for the real embedder: byte-identical
+    outputs already short-circuit semantic scoring, but this guarantees the
+    replay tests never load sentence-transformers even if that changes."""
+    return [[1.0, 0.0] for _ in texts]
+
+
 # ── Record: real Agent.run_sync drives the real OpenAI SDK through PatchSet ────
 
 def test_pydantic_ai_records_llm_call(tmp_path):
@@ -104,6 +111,8 @@ def test_pydantic_ai_replay_never_touches_wire(tmp_path):
     # Replay: transport handler raises if the wire is ever touched.
     replay_agent = _make_agent(_raising_handler)
     with PatchSet():
-        with AgentAsserter("pai_replay", snapshot_dir=str(tmp_path), mode="replay") as a:
+        with AgentAsserter(
+            "pai_replay", snapshot_dir=str(tmp_path), mode="replay", embed_fn=_identical_embed
+        ) as a:
             result = replay_agent.run_sync("say hi")
             a.output = result.output

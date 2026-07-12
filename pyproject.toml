@@ -46,6 +46,12 @@ dev = [
     "deepdiff>=6.0",
     "numpy>=1.24",
 ]
+frameworks = [
+    "pydantic-ai-slim[openai]",
+    "openai-agents",
+    "langchain-openai",
+    "httpx",
+]
 
 [project.scripts]
 agentsnap = "agentsnap.cli:main"
@@ -60,6 +66,9 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+markers = [
+    "frameworks: real-framework verification tests (needs .[frameworks])",
+]
 
 [tool.agentsnap]
 # Semantic backend: "offline" (all-MiniLM-L6-v2) or "judge" (LLM via API)

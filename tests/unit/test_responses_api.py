@@ -55,7 +55,7 @@ def _canned_response_dict(text: str = "Hello world", tokens: int = 15) -> dict:
             "input_tokens": 10,
             "output_tokens": 5,
             "total_tokens": tokens,
-            "input_tokens_details": {"cached_tokens": 0},
+            "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
             "output_tokens_details": {"reasoning_tokens": 0},
         },
     }

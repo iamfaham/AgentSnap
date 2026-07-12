@@ -63,6 +63,28 @@ def normalize_responses_input(kwargs: dict) -> list[dict]:
     return messages
 
 
+def unwrap_legacy_response(response):
+    """Unwrap an OpenAI ``LegacyAPIResponse`` into the parsed model it wraps.
+
+    Some callers (e.g. langchain-openai, both sync and async) request the raw
+    HTTP response via the SDK's ``with_raw_response``/``X-Stainless-Raw-Response``
+    mechanism so they can read rate-limit headers, then call ``.parse()``
+    themselves to get the real ``ChatCompletion``/``Response``. Our interceptor
+    still needs the parsed object to extract text/tokens/tool_requests, but must
+    return the original (possibly-legacy) object to the caller unchanged so their
+    own ``.parse()``/header access keeps working.
+    """
+    if hasattr(response, "choices") or hasattr(response, "output"):
+        return response
+    parse = getattr(response, "parse", None)
+    if callable(parse):
+        try:
+            return parse()
+        except Exception:
+            return response
+    return response
+
+
 def dump_raw(response) -> dict | None:
     """Serialize a provider response for replay. None if the object can't dump."""
     dump = getattr(response, "model_dump", None)

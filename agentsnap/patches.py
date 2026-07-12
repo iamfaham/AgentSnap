@@ -23,6 +23,7 @@ from agentsnap.adapters.openai import (
     reconstruct_response_event as _openai_reconstruct_response_event,
     replay_stream as _openai_replay_stream,
     replay_stream_async as _openai_replay_stream_async,
+    unwrap_legacy_response as _openai_unwrap_legacy_response,
 )
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
@@ -223,20 +224,21 @@ def _apply_openai() -> list[tuple]:
 
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)
+        parsed = _openai_unwrap_legacy_response(response)
         text = ""
         tokens = 0
-        if hasattr(response, "choices") and response.choices:
-            text = response.choices[0].message.content or ""
-        if hasattr(response, "usage"):
-            tokens = getattr(response.usage, "total_tokens", 0)
+        if hasattr(parsed, "choices") and parsed.choices:
+            text = parsed.choices[0].message.content or ""
+        if hasattr(parsed, "usage"):
+            tokens = getattr(parsed.usage, "total_tokens", 0)
         acc.push(
             {
                 "type": "llm_call",
                 "messages": messages,
                 "response": text,
                 "tokens": tokens,
-                "raw_response": _openai_dump_raw(response),
-                "tool_requests": _openai_extract_tool_requests(response),
+                "raw_response": _openai_dump_raw(parsed),
+                "tool_requests": _openai_extract_tool_requests(parsed),
             }
         )
         return response
@@ -288,20 +290,21 @@ def _apply_openai_async() -> list[tuple]:
 
         kwargs["stream"] = False
         response = await original(self, *args, **kwargs)
+        parsed = _openai_unwrap_legacy_response(response)
         text = ""
         tokens = 0
-        if hasattr(response, "choices") and response.choices:
-            text = response.choices[0].message.content or ""
-        if hasattr(response, "usage"):
-            tokens = getattr(response.usage, "total_tokens", 0)
+        if hasattr(parsed, "choices") and parsed.choices:
+            text = parsed.choices[0].message.content or ""
+        if hasattr(parsed, "usage"):
+            tokens = getattr(parsed.usage, "total_tokens", 0)
         acc.push(
             {
                 "type": "llm_call",
                 "messages": messages,
                 "response": text,
                 "tokens": tokens,
-                "raw_response": _openai_dump_raw(response),
-                "tool_requests": _openai_extract_tool_requests(response),
+                "raw_response": _openai_dump_raw(parsed),
+                "tool_requests": _openai_extract_tool_requests(parsed),
             }
         )
         return response

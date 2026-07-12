@@ -13,16 +13,17 @@ This guide walks through everything you need to use agentsnap effectively — fr
 5. [Choosing an instrumentation style](#choosing-an-instrumentation-style)
 6. [Zero-instrumentation with PatchSet](#zero-instrumentation-with-patchset)
 7. [Using adapters (alternative)](#using-adapters-alternative)
-8. [Replay vs live mode](#replay-vs-live-mode)
-9. [Model tool decisions](#model-tool-decisions)
-10. [pytest integration](#pytest-integration)
-11. [LangGraph](#langgraph)
-12. [Reviewing and approving changes](#reviewing-and-approving-changes)
-13. [Configuration](#configuration)
-14. [Understanding diff results](#understanding-diff-results)
-15. [Tuning thresholds](#tuning-thresholds)
-16. [LLM judge](#llm-judge)
-17. [CI setup](#ci-setup)
+8. [Works with your framework](#works-with-your-framework)
+9. [Replay vs live mode](#replay-vs-live-mode)
+10. [Model tool decisions](#model-tool-decisions)
+11. [pytest integration](#pytest-integration)
+12. [LangGraph](#langgraph)
+13. [Reviewing and approving changes](#reviewing-and-approving-changes)
+14. [Configuration](#configuration)
+15. [Understanding diff results](#understanding-diff-results)
+16. [Tuning thresholds](#tuning-thresholds)
+17. [LLM judge](#llm-judge)
+18. [CI setup](#ci-setup)
 
 ---
 
@@ -268,6 +269,37 @@ If the trace matches the golden snapshot, the context manager exits cleanly. If 
 
 ---
 
+## Works with your framework
+
+Frameworks build their own SDK clients internally, so there's nothing to wrap — `PatchSet` patches the underlying SDK classes directly (sync and async Anthropic/OpenAI chat, plus the OpenAI Responses API), so any framework built on top of them is captured automatically, with no per-framework adapter needed.
+
+| Framework | How | CI-verified |
+|-----------|-----|-------------|
+| Pydantic AI | `PatchSet` — async OpenAI/Anthropic clients | Yes |
+| OpenAI Agents SDK | `PatchSet` — Responses API | Yes |
+| LangChain | `PatchSet` — sync + async chat | Yes |
+| LangGraph | `LangGraphAdapter` for node-level events, or `PatchSet` | Yes (existing) |
+| CrewAI | Works via LiteLLM's OpenAI-compatible sync path | Documented, not CI-verified |
+
+The universal pattern — wrap the framework call, nothing else changes:
+
+```python
+from agentsnap import PatchSet
+from agentsnap.core.asserter import AgentAsserter
+
+with PatchSet():
+    with AgentAsserter("my_framework_agent") as a:
+        a.output = my_pydantic_ai_agent.run_sync("What is Python?").output
+```
+
+Caveats:
+- Streamed OpenAI Responses-API runs (`responses.create(stream=True)`) pass through unrecorded this iteration — non-streaming Responses calls and all chat-completions streaming (sync + async) are recorded and replayable.
+- The model-tools check is gated trace-wide: if any call in the trace is a streamed call or a non-Anthropic/OpenAI provider, the whole run's `model_tools`/`model_tool_args` comparison is skipped.
+
+Real-framework verification tests live in `tests/frameworks/` (marker `frameworks`, `pytest.importorskip`-guarded, run via a separate CI job with `.[dev,frameworks]` installed) — they drive each framework's real code path through an offline mock transport, asserting on agentsnap's recorded trace, not framework internals.
+
+---
+
 ## Replay vs live mode
 
 Every assert can run in one of two modes:
@@ -310,7 +342,7 @@ Notes:
 - Replay currently supports Anthropic, OpenAI, Groq, and OpenRouter. Other providers raise `ReplayError` — use live mode for those tests.
 - With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash is not available because the snapshot is read before the test body runs).
 - If the replayed final output isn't byte-identical to the golden, scoring it needs a semantic backend — install and configure the embeddings backend (`pip install agentsnap[offline]`, then `agentsnap init` option 2) or configure a judge (`AGENTSNAP_JUDGE_API_KEY`).
-- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) aren't intercepted yet — replay's no-network guarantee currently covers sync clients only.
+- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) are intercepted too — replay's no-network guarantee covers both sync and async clients, including async streams. The one remaining hole is the streamed OpenAI Responses API (`responses.create(stream=True)`), which passes through unrecorded. See `examples/demo_async.py`.
 
 See `examples/demo_replay.py` for a full runnable walkthrough: record a golden run, replay it with the network disabled to prove zero live calls, then watch replay catch a prompt edit instantly.
 
@@ -320,7 +352,7 @@ See `examples/demo_replay.py` for a full runnable walkthrough: record a golden r
 
 Replay rebuilds the recorded chunks into real SDK chunk/event objects and yields them back incrementally — the agent consumes them exactly like a live stream, with zero API calls. Replaying a streaming recording against a non-streaming request (or vice versa) raises `ReplayError` with a "shape mismatch" message.
 
-Not yet supported: the `client.messages.stream()` context-manager helper, and async streams. Mistral still forces `stream=False` on every call.
+Not yet supported: the `client.messages.stream()` context-manager helper, and streamed OpenAI Responses-API calls. Mistral still forces `stream=False` on every call. See `examples/demo_async.py` for the async-client version of this walkthrough.
 
 A stream that is never iterated and never closed is finalized automatically at recorder/asserter exit, but consuming or closing it promptly is still recommended so events appear in call order.
 

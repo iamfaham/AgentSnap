@@ -170,8 +170,11 @@ Notes:
   needs a semantic backend — install and configure the embeddings backend
   (`pip install agentsnap[offline]`, then `agentsnap init` option 2) or configure a judge
   (`AGENTSNAP_JUDGE_API_KEY`).
-- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) aren't intercepted yet —
-  replay's no-network guarantee currently covers sync clients only.
+- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) are intercepted too —
+  replay's no-network guarantee covers both sync and async clients, including
+  async streams. The one remaining hole is the streamed OpenAI Responses API
+  (`responses.create(stream=True)`), which passes through unrecorded. See
+  `examples/demo_async.py`.
 
 ### Streaming agents
 
@@ -187,8 +190,9 @@ call cannot replay as a non-streaming request (or vice versa) — that raises
 `ReplayError` with a clear "shape mismatch" message.
 
 Not yet supported: the `client.messages.stream()` context-manager helper,
-and async streams. Mistral still forces `stream=False` on every call. See
-`examples/demo_streaming.py` for a full runnable walkthrough.
+and streamed OpenAI Responses-API calls. Mistral still forces `stream=False`
+on every call. See `examples/demo_streaming.py` for a full runnable
+walkthrough, and `examples/demo_async.py` for the async-client version.
 
 A stream that is never iterated and never closed is finalized automatically
 at recorder/asserter exit, but consuming or closing it promptly is still
@@ -257,6 +261,47 @@ pip install agentsnap[mistral]   # mistralai
 pip install agentsnap[groq]      # groq
 pip install agentsnap[all-providers]
 ```
+
+---
+
+## Works with your framework
+
+Frameworks build their own SDK clients internally, so there's nothing to
+wrap — `PatchSet` patches the underlying SDK classes (sync and async
+Anthropic/OpenAI chat, plus the OpenAI Responses API), so any framework
+built on top of them is captured automatically.
+
+| Framework | How | CI-verified |
+|-----------|-----|-------------|
+| Pydantic AI | `PatchSet` — async OpenAI/Anthropic clients | ✅ |
+| OpenAI Agents SDK | `PatchSet` — Responses API | ✅ |
+| LangChain | `PatchSet` — sync + async chat | ✅ |
+| LangGraph | `LangGraphAdapter` for node-level events, or `PatchSet` | ✅ (existing) |
+| CrewAI | Works via LiteLLM's OpenAI-compatible sync path | documented, not CI-verified |
+
+The universal pattern — wrap the framework call, nothing else changes:
+
+```python
+from agentsnap import PatchSet
+from agentsnap.core.asserter import AgentAsserter
+
+with PatchSet():
+    with AgentAsserter("my_framework_agent") as a:
+        a.output = my_pydantic_ai_agent.run_sync("What is Python?").output
+```
+
+Caveats:
+- Streamed OpenAI Responses-API runs (`responses.create(stream=True)`) pass
+  through unrecorded this iteration — non-streaming Responses calls and all
+  chat-completions streaming (sync + async) are recorded and replayable.
+- The model-tools check (see below) is gated trace-wide: if any call in the
+  trace is a streamed call or a non-Anthropic/OpenAI provider, the whole
+  run's `model_tools`/`model_tool_args` comparison is skipped.
+
+Real-framework verification tests live in `tests/frameworks/` (marker
+`frameworks`, `pytest.importorskip`-guarded, run via a separate CI job with
+`.[dev,frameworks]` installed) — they drive each framework's real code path
+through an offline mock transport, asserting on agentsnap's recorded trace.
 
 ---
 

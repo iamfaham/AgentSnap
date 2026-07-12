@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-07-11
+
+### Added
+
+- **Async client interception** — `PatchSet` now patches `AsyncMessages.create` (Anthropic) and `AsyncCompletions.create` (OpenAI) the same way it patches the sync classes: recording, stream teeing (`AsyncAnthropicRecordingStream` / `AsyncOpenAIRecordingStream`), and full replay (including async streams reconstructed as real SDK chunk objects). Replay's no-network guarantee now covers async clients, not just sync.
+- **OpenAI Responses API support** — non-streaming `responses.create()` / `AsyncResponses.create()` calls are recorded and replayed (`tool_requests`, `raw_response`, token counts included). Streamed Responses-API calls remain the one documented capture hole.
+- **Real-framework verification** — `tests/frameworks/` exercises Pydantic AI, the OpenAI Agents SDK, and LangChain against agentsnap's `PatchSet` interception through an offline mock HTTP transport, run by a dedicated `frameworks` CI job (`pip install -e ".[dev,frameworks]"`); the main test matrix stays hermetic via `pytest.importorskip`.
+- `examples/demo_async.py`: a runnable walkthrough of recording an async agent, replaying it with zero live calls, and catching a prompt edit.
+- README/USAGE "Works with your framework" compatibility matrix.
+
+### Fixed
+
+- LangChain's raw-response wrapper was recording empty responses; the OpenAI adapter now unwraps it before extracting text.
+
 ## [0.3.0] - 2026-07-11
 
 ### Added

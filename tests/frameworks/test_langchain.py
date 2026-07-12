@@ -136,3 +136,95 @@ def test_langchain_replay_never_touches_wire(tmp_path):
         ) as a:
             result = replay_chat.invoke("hi")
             a.output = result.content
+
+
+def test_langchain_async_ainvoke_replay_never_touches_wire(tmp_path):
+    """Mirrors test_langchain_replay_never_touches_wire for the async
+    ainvoke() path — same with_raw_response bug, async transport."""
+    chat = _make_chat("hi from langchain async replay")
+
+    async def _record():
+        with PatchSet():
+            with AgentRecorder("lc_async_replay", snapshot_dir=str(tmp_path)) as rec:
+                result = await chat.ainvoke("hi")
+                rec.output = result.content
+
+    asyncio.run(_record())
+
+    replay_chat = _make_chat_with_handler(_raising_handler)
+
+    async def _replay():
+        with PatchSet():
+            with AgentAsserter(
+                "lc_async_replay",
+                snapshot_dir=str(tmp_path),
+                mode="replay",
+                embed_fn=_identical_embed,
+            ) as a:
+                result = await replay_chat.ainvoke("hi")
+                a.output = result.content
+
+    asyncio.run(_replay())
+
+
+# ── Responses-route record (Fix 1): use_responses_api=True ─────────────────
+# langchain-openai's Responses route calls
+# responses.with_raw_response.create() directly, so the record-side unwrap
+# (_apply_openai_responses) must run the same way it does for chat. A full
+# replay round-trip through this route additionally hits a pre-existing
+# reconstruct_response() gap (the real SDK's Responses object dumps
+# usage.input_tokens_details.cache_write_tokens as null, which
+# Response.model_validate then rejects as a required int) — unrelated to
+# this fix, so only the record side is covered here.
+
+def test_langchain_responses_route_record_unwraps_raw_response(tmp_path):
+    payload = {
+        "id": "resp_123",
+        "created_at": 1700000000,
+        "model": "gpt-4o-mini",
+        "object": "response",
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                    {"type": "output_text", "text": "hi from responses route", "annotations": []},
+                ],
+            }
+        ],
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 15,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0},
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    sync_client = httpx.Client(transport=httpx.MockTransport(handler))
+    chat = ChatOpenAI(
+        api_key="test",
+        model="gpt-4o-mini",
+        use_responses_api=True,
+        http_client=sync_client,
+    )
+
+    with PatchSet():
+        with AgentRecorder("lc_responses_route", snapshot_dir=str(tmp_path)) as rec:
+            result = chat.invoke("hi")
+            rec.output = result.content
+
+    snap = read_snapshot("lc_responses_route", str(tmp_path))
+    llm_calls = [e for e in snap["trace"] if e["type"] == "llm_call"]
+    assert len(llm_calls) >= 1
+    assert llm_calls[0]["response"] == "hi from responses route"
+    assert llm_calls[0]["tokens"] == 15
+    assert llm_calls[0]["raw_response"] is not None

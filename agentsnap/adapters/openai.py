@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
@@ -81,6 +82,11 @@ def unwrap_legacy_response(response):
         try:
             return parse()
         except Exception:
+            warnings.warn(
+                "agentsnap: failed to unwrap a raw-response wrapper; "
+                "this call may record an empty response",
+                stacklevel=2,
+            )
             return response
     return response
 
@@ -115,6 +121,29 @@ class ReplayLegacyResponse:
 
     def __getattr__(self, name):
         return getattr(self._parsed, name)
+
+
+class RawResponseStreamShim:
+    """Mimics the SDK's raw-response wrapper around a (teed) stream.
+
+    When a caller uses ``with_raw_response`` on a streaming call (e.g.
+    langchain-openai), the SDK returns a ``LegacyAPIResponse`` whose
+    ``.parse()`` yields the real ``Stream``. Our recording tee wraps the
+    real stream, so a raw-response caller needs this shim in front of it:
+    ``.parse()`` returns the tee (so it still gets recorded), and every
+    other attribute (headers, etc.) forwards to the original
+    ``LegacyAPIResponse`` from the real HTTP call.
+    """
+
+    def __init__(self, tee, legacy) -> None:
+        self._tee = tee
+        self._legacy = legacy  # the original LegacyAPIResponse (real headers etc.)
+
+    def parse(self):
+        return self._tee
+
+    def __getattr__(self, name):
+        return getattr(self._legacy, name)
 
 
 def dump_raw(response) -> dict | None:

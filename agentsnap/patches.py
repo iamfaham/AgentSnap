@@ -26,6 +26,7 @@ from agentsnap.adapters.openai import (
     unwrap_legacy_response as _openai_unwrap_legacy_response,
     wants_raw_response as _openai_wants_raw_response,
     ReplayLegacyResponse as _OpenAIReplayLegacyResponse,
+    RawResponseStreamShim as _OpenAIRawResponseStreamShim,
 )
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
@@ -233,7 +234,13 @@ def _apply_openai() -> list[tuple]:
             # Stream object rather than the legacy wrapper. Identity for normal
             # (already-parsed) streams.
             stream = _openai_unwrap_legacy_response(response)
-            return OpenAIRecordingStream(stream, messages, acc)
+            tee = OpenAIRecordingStream(stream, messages, acc)
+            # A with_raw_response caller expects to call .parse() on the return
+            # value to get the stream; give it back a shim that satisfies that
+            # surface while still handing out the (recording) tee.
+            if _openai_wants_raw_response(kwargs):
+                return _OpenAIRawResponseStreamShim(tee, response)
+            return tee
 
         kwargs["stream"] = False
         response = original(self, *args, **kwargs)
@@ -309,7 +316,13 @@ def _apply_openai_async() -> list[tuple]:
             # so the tee iterates the real async Stream object; identity-safe
             # for already-parsed streams.
             stream = _openai_unwrap_legacy_response(response)
-            return AsyncOpenAIRecordingStream(stream, messages, acc)
+            tee = AsyncOpenAIRecordingStream(stream, messages, acc)
+            # A with_raw_response caller expects to call .parse() on the return
+            # value to get the stream; give it back a shim that satisfies that
+            # surface while still handing out the (recording) tee.
+            if _openai_wants_raw_response(kwargs):
+                return _OpenAIRawResponseStreamShim(tee, response)
+            return tee
 
         kwargs["stream"] = False
         response = await original(self, *args, **kwargs)
@@ -368,7 +381,14 @@ def _apply_openai_responses() -> list[tuple]:
                     f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
                     "Re-record the golden: pytest --agentsnap-record"
                 )
-            return _openai_reconstruct_response_event(event)
+            reconstructed = _openai_reconstruct_response_event(event)
+            # Callers that used with_raw_response (e.g. langchain-openai's
+            # Responses route) expect a legacy-response-like object with
+            # .parse() back — there's no real LegacyAPIResponse in replay
+            # since no HTTP call was made.
+            if _openai_wants_raw_response(kwargs):
+                return _OpenAIReplayLegacyResponse(reconstructed)
+            return reconstructed
 
         if kwargs.get("stream"):
             # Streamed Responses API runs pass through unrecorded this release —
@@ -377,15 +397,19 @@ def _apply_openai_responses() -> list[tuple]:
 
         messages = _openai_normalize_responses_input(kwargs)
         response = original(self, *args, **kwargs)
-        usage = getattr(response, "usage", None)
+        # Some callers (e.g. langchain-openai's Responses route) request the
+        # raw HTTP response via with_raw_response; unwrap so we extract from
+        # the real parsed Response object. Identity for normal responses.
+        parsed = _openai_unwrap_legacy_response(response)
+        usage = getattr(parsed, "usage", None)
         acc.push(
             {
                 "type": "llm_call",
                 "messages": messages,
-                "response": _openai_extract_responses_text(response),
+                "response": _openai_extract_responses_text(parsed),
                 "tokens": getattr(usage, "total_tokens", 0) or 0,
-                "raw_response": _openai_dump_raw(response),
-                "tool_requests": _openai_extract_responses_tool_requests(response),
+                "raw_response": _openai_dump_raw(parsed),
+                "tool_requests": _openai_extract_responses_tool_requests(parsed),
             }
         )
         return response
@@ -426,7 +450,14 @@ def _apply_openai_responses_async() -> list[tuple]:
                     f"but the agent requested {'streaming' if wants_stream else 'non-streaming'}. "
                     "Re-record the golden: pytest --agentsnap-record"
                 )
-            return _openai_reconstruct_response_event(event)
+            reconstructed = _openai_reconstruct_response_event(event)
+            # Callers that used with_raw_response (e.g. langchain-openai's
+            # Responses route) expect a legacy-response-like object with
+            # .parse() back — there's no real LegacyAPIResponse in replay
+            # since no HTTP call was made.
+            if _openai_wants_raw_response(kwargs):
+                return _OpenAIReplayLegacyResponse(reconstructed)
+            return reconstructed
 
         if kwargs.get("stream"):
             # Streamed Responses API runs pass through unrecorded this release —
@@ -435,15 +466,19 @@ def _apply_openai_responses_async() -> list[tuple]:
 
         messages = _openai_normalize_responses_input(kwargs)
         response = await original(self, *args, **kwargs)
-        usage = getattr(response, "usage", None)
+        # Some callers (e.g. langchain-openai's Responses route) request the
+        # raw HTTP response via with_raw_response; unwrap so we extract from
+        # the real parsed Response object. Identity for normal responses.
+        parsed = _openai_unwrap_legacy_response(response)
+        usage = getattr(parsed, "usage", None)
         acc.push(
             {
                 "type": "llm_call",
                 "messages": messages,
-                "response": _openai_extract_responses_text(response),
+                "response": _openai_extract_responses_text(parsed),
                 "tokens": getattr(usage, "total_tokens", 0) or 0,
-                "raw_response": _openai_dump_raw(response),
-                "tool_requests": _openai_extract_responses_tool_requests(response),
+                "raw_response": _openai_dump_raw(parsed),
+                "tool_requests": _openai_extract_responses_tool_requests(parsed),
             }
         )
         return response
@@ -614,18 +649,25 @@ class PatchSet:
         self._applied: list[tuple] = []
 
     def __enter__(self) -> PatchSet:
-        for fn in _PATCHER_FNS:
-            patches = _safe_apply(fn)
-            for cls, attr, original in patches:
-                if getattr(original, "__name__", None) == "_interceptor":
-                    warnings.warn(
-                        f"PatchSet is patching {cls.__name__}.{attr} which is already patched "
-                        "(by an agentsnap adapter or a nested PatchSet). "
-                        "LLM events will be recorded twice. "
-                        "Use PatchSet OR adapters, not both.",
-                        stacklevel=2,
-                    )
-            self._applied.extend(patches)
+        try:
+            for fn in _PATCHER_FNS:
+                patches = _safe_apply(fn)
+                for cls, attr, original in patches:
+                    if getattr(original, "__name__", None) == "_interceptor":
+                        warnings.warn(
+                            f"PatchSet is patching {cls.__name__}.{attr} which is already patched "
+                            "(by an agentsnap adapter or a nested PatchSet). "
+                            "LLM events will be recorded twice. "
+                            "Use PatchSet OR adapters, not both.",
+                            stacklevel=2,
+                        )
+                self._applied.extend(patches)
+        except Exception:
+            # Roll back any patches already applied this __enter__ before
+            # propagating — otherwise a mid-loop failure (e.g. warnings
+            # escalated to errors) leaves the SDK partially patched.
+            self.__exit__()
+            raise
         return self
 
     def __exit__(self, *args) -> None:

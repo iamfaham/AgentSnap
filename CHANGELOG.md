@@ -16,7 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- LangChain's raw-response wrapper was recording empty responses; the OpenAI adapter now unwraps it before extracting text.
+- LangChain's raw-response wrapper was recording empty responses; the OpenAI adapter now unwraps it before extracting text — including LangChain's Responses-API route (`use_responses_api=True`), which calls `responses.with_raw_response.create()` and previously bypassed the unwrap entirely.
+- Replaying a recorded call made through `with_raw_response` (chat or Responses API) now returns a `ReplayLegacyResponse` shim exposing `.parse()`, instead of a plain reconstructed object the caller's `.parse()`-based code couldn't use.
 
 ## [0.3.0] - 2026-07-11
 

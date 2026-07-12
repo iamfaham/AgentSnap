@@ -1,0 +1,67 @@
+site_name: agentsnap
+site_url: https://iamfaham.github.io/AgentSnap/
+repo_url: https://github.com/iamfaham/AgentSnap
+repo_name: iamfaham/AgentSnap
+docs_dir: site-docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            heading_level: 3
+            docstring_style: google
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.snippets:
+      base_path:
+        - "."
+      check_paths: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Recording: guides/recording.md
+      - Replay: guides/replay.md
+      - Streaming: guides/streaming.md
+      - Model tools: guides/model-tools.md
+      - Frameworks: guides/frameworks.md
+      - Configuration: guides/configuration.md
+      - CLI: guides/cli.md
+      - CI: guides/ci.md
+  - API Reference: reference.md
+  - Changelog: changelog.md

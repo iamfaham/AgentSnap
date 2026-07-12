@@ -12,6 +12,14 @@ def _excerpt(text: str, max_len: int = 200) -> str:
 
 
 class AgentRegressionError(Exception):
+    """Raised by `AgentAsserter` when the new trace drifts beyond threshold.
+
+    `str(exc)` is a human-readable multi-section report (structural, argument,
+    model-tools, and semantic diffs). Programmatic callers should inspect
+    `exc.diff_report`, a `DiffReport` with `structural_diff`, `argument_diffs`,
+    `semantic_scores`, `semantic_reasons`, and `failed_checks`.
+    """
+
     def __init__(
         self,
         test_name: str,
@@ -115,6 +123,13 @@ class AgentRegressionError(Exception):
 
 
 class SnapshotNotFoundError(Exception):
+    """Raised when no snapshot file exists for a test (direct SDK use only).
+
+    `AgentAsserter` catches this internally and auto-records a golden run
+    instead of propagating it; it only reaches calling code when a snapshot
+    is looked up directly (e.g. `read_snapshot()`).
+    """
+
     def __init__(self, test_name: str) -> None:
         super().__init__(
             f"Snapshot not found for '{test_name}'. Run 'agentsnap record' first."

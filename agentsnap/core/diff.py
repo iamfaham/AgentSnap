@@ -258,6 +258,14 @@ class DiffConfig:
 
 @dataclass
 class DiffReport:
+    """Result of `compute_diff()` — one entry per comparison layer.
+
+    `failed_checks` contains strings like `"structural"`, `"model_tools"`,
+    `"model_tool_args"`, `"arguments"`, `"llm_requests"` (replay mode), or
+    `"semantic:output"` / `"semantic:llm_call[n]"` — one per layer/step that
+    failed. `passed` is `True` iff `failed_checks` is empty.
+    """
+
     passed: bool
     structural_diff: str | None = None
     structural_score: float | None = None

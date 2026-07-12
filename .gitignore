@@ -18,3 +18,5 @@ __agent_snapshots__/
 .env
 
 docs/
+
+site/

@@ -58,7 +58,23 @@ class TraceAccumulator:
 
 
 class AgentRecorder:
-    """Context manager that wraps an agent run and writes a snapshot on exit."""
+    """Context manager that records an agent run and writes a golden snapshot.
+
+    Intercepts every LLM/tool call made through an active adapter or
+    `PatchSet` while the context is open, then writes
+    `{snapshot_dir}/{test_name}.json` on clean exit (nothing is written if
+    the block raises). Supports both sync (`with`) and async (`async with`)
+    usage.
+
+    Usage::
+
+        with PatchSet():
+            with AgentRecorder("my_agent", model="claude-haiku-4-5") as rec:
+                rec.input_data = {"query": "hello"}   # optional metadata
+                result = my_agent("hello")
+                rec.output = result
+        # Writes __agent_snapshots__/my_agent.json
+    """
 
     def __init__(
         self,

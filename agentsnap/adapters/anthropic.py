@@ -1,7 +1,20 @@
 from __future__ import annotations
 
+from agentsnap.adapters._raw_response import (
+    RawResponseStreamShim,
+    ReplayLegacyResponse,
+    unwrap_legacy_response,
+    wants_raw_response,
+)
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
+
+__all__ = [
+    "RawResponseStreamShim",
+    "ReplayLegacyResponse",
+    "unwrap_legacy_response",
+    "wants_raw_response",
+]
 
 
 def extract_tool_requests(response) -> list[dict]:

@@ -10,6 +10,10 @@ from agentsnap.adapters.anthropic import (
     reconstruct_event as _anthropic_reconstruct_event,
     replay_stream as _anthropic_replay_stream,
     replay_stream_async as _anthropic_replay_stream_async,
+    unwrap_legacy_response as _anthropic_unwrap_legacy_response,
+    wants_raw_response as _anthropic_wants_raw_response,
+    ReplayLegacyResponse as _AnthropicReplayLegacyResponse,
+    RawResponseStreamShim as _AnthropicRawResponseStreamShim,
 )
 from agentsnap.adapters.openai import (
     AsyncOpenAIRecordingStream,
@@ -79,23 +83,43 @@ def _apply_anthropic() -> list[tuple]:
                 )
             if is_stream_recording:
                 return _anthropic_replay_stream(raw["chunks"])
-            return _anthropic_reconstruct_event(event)
+            reconstructed = _anthropic_reconstruct_event(event)
+            # Callers that used with_raw_response (e.g. langchain-anthropic)
+            # expect a legacy-response-like object with .parse() back —
+            # there's no real LegacyAPIResponse in replay since no HTTP call
+            # was made.
+            if _anthropic_wants_raw_response(kwargs):
+                return _AnthropicReplayLegacyResponse(reconstructed)
+            return reconstructed
 
         if kwargs.get("stream"):
             response = original(self, *args, **kwargs)
-            return AnthropicRecordingStream(response, messages, acc)
+            # Some callers (e.g. langchain-anthropic) request the raw HTTP
+            # response and call .parse() themselves; unwrap so the tee
+            # iterates the real Stream object rather than the legacy
+            # wrapper. Identity for normal (already-parsed) streams.
+            stream = _anthropic_unwrap_legacy_response(response)
+            tee = AnthropicRecordingStream(stream, messages, acc)
+            # A with_raw_response caller expects to call .parse() on the
+            # return value to get the stream; give it back a shim that
+            # satisfies that surface while still handing out the (recording)
+            # tee.
+            if _anthropic_wants_raw_response(kwargs):
+                return _AnthropicRawResponseStreamShim(tee, response)
+            return tee
 
         response = original(self, *args, **kwargs)
+        parsed = _anthropic_unwrap_legacy_response(response)
         text = ""
         tokens = 0
-        if hasattr(response, "content"):
-            for block in response.content:
+        if hasattr(parsed, "content"):
+            for block in parsed.content:
                 if hasattr(block, "text"):
                     text += block.text
-        if hasattr(response, "usage"):
+        if hasattr(parsed, "usage"):
             tokens = (
-                getattr(response.usage, "input_tokens", 0)
-                + getattr(response.usage, "output_tokens", 0)
+                getattr(parsed.usage, "input_tokens", 0)
+                + getattr(parsed.usage, "output_tokens", 0)
             )
         acc.push(
             {
@@ -103,8 +127,8 @@ def _apply_anthropic() -> list[tuple]:
                 "messages": messages,
                 "response": text,
                 "tokens": tokens,
-                "raw_response": _anthropic_dump_raw(response),
-                "tool_requests": _anthropic_extract_tool_requests(response),
+                "raw_response": _anthropic_dump_raw(parsed),
+                "tool_requests": _anthropic_extract_tool_requests(parsed),
             }
         )
         return response
@@ -148,23 +172,42 @@ def _apply_anthropic_async() -> list[tuple]:
                 )
             if is_stream_recording:
                 return _anthropic_replay_stream_async(raw["chunks"])
-            return _anthropic_reconstruct_event(event)
+            reconstructed = _anthropic_reconstruct_event(event)
+            # Callers that used with_raw_response (e.g. langchain-anthropic)
+            # expect a legacy-response-like object with .parse() back —
+            # there's no real LegacyAPIResponse in replay since no HTTP call
+            # was made.
+            if _anthropic_wants_raw_response(kwargs):
+                return _AnthropicReplayLegacyResponse(reconstructed)
+            return reconstructed
 
         if kwargs.get("stream"):
             response = await original(self, *args, **kwargs)
-            return AsyncAnthropicRecordingStream(response, messages, acc)
+            # Unwrap a legacy raw-response wrapper (e.g. from
+            # langchain-anthropic) so the tee iterates the real async Stream
+            # object; identity-safe for already-parsed streams.
+            stream = _anthropic_unwrap_legacy_response(response)
+            tee = AsyncAnthropicRecordingStream(stream, messages, acc)
+            # A with_raw_response caller expects to call .parse() on the
+            # return value to get the stream; give it back a shim that
+            # satisfies that surface while still handing out the (recording)
+            # tee.
+            if _anthropic_wants_raw_response(kwargs):
+                return _AnthropicRawResponseStreamShim(tee, response)
+            return tee
 
         response = await original(self, *args, **kwargs)
+        parsed = _anthropic_unwrap_legacy_response(response)
         text = ""
         tokens = 0
-        if hasattr(response, "content"):
-            for block in response.content:
+        if hasattr(parsed, "content"):
+            for block in parsed.content:
                 if hasattr(block, "text"):
                     text += block.text
-        if hasattr(response, "usage"):
+        if hasattr(parsed, "usage"):
             tokens = (
-                getattr(response.usage, "input_tokens", 0)
-                + getattr(response.usage, "output_tokens", 0)
+                getattr(parsed.usage, "input_tokens", 0)
+                + getattr(parsed.usage, "output_tokens", 0)
             )
         acc.push(
             {
@@ -172,8 +215,8 @@ def _apply_anthropic_async() -> list[tuple]:
                 "messages": messages,
                 "response": text,
                 "tokens": tokens,
-                "raw_response": _anthropic_dump_raw(response),
-                "tool_requests": _anthropic_extract_tool_requests(response),
+                "raw_response": _anthropic_dump_raw(parsed),
+                "tool_requests": _anthropic_extract_tool_requests(parsed),
             }
         )
         return response

@@ -50,6 +50,7 @@ frameworks = [
     "pydantic-ai-slim[openai]",
     "openai-agents",
     "langchain-openai",
+    "langchain-anthropic",
     "httpx",
 ]
 docs = [

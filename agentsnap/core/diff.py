@@ -376,7 +376,9 @@ def model_tool_diffs(
       - edit_distance: 0 when sequences match; the caller decides whether to
         fail based on config.structural_tolerance (mirrors structural_diff).
       - arg_diffs: dict keyed f"model_tool:{name}[{i}]" for each pairwise
-        request whose args differ (zipped across both sides).
+        request whose args differ (zipped across both sides); when the
+        paired requests have different names, the key is
+        f"model_tool:{old_name}->{new_name}[{i}]" instead.
     """
     old_llm = _llm_calls(old_trace)
     new_llm = _llm_calls(new_trace)
@@ -395,7 +397,12 @@ def model_tool_diffs(
         new_wrapped = {"args": new_r.get("args")}
         diff = _deepdiff_args(old_wrapped, new_wrapped, ignored) or _plain_diff_args(old_wrapped, new_wrapped, ignored)
         if diff:
-            arg_diffs[f"model_tool:{old_r['name']}[{i}]"] = diff
+            old_name, new_name = old_r["name"], new_r["name"]
+            if old_name != new_name:
+                key = f"model_tool:{old_name}->{new_name}[{i}]"
+            else:
+                key = f"model_tool:{old_name}[{i}]"
+            arg_diffs[key] = diff
 
     if old_names == new_names:
         return None, 0, arg_diffs

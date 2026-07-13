@@ -677,6 +677,16 @@ def test_model_tool_diffs_changed_args():
     assert "model_tool:search[0]" in arg_diffs
 
 
+def test_model_tool_diffs_cross_name_pair_uses_arrow_key():
+    """When paired requests have different names, the arg-diff key names both."""
+    old_trace = [_llm_with_tools([{"name": "search", "args": {"q": "old"}}])]
+    new_trace = [_llm_with_tools([{"name": "delete_file", "args": {"path": "/etc"}}])]
+    msg, dist, arg_diffs = model_tool_diffs(old_trace, new_trace)
+    assert dist == 1
+    assert "model_tool:search->delete_file[0]" in arg_diffs
+    assert "model_tool:search[0]" not in arg_diffs
+
+
 def test_compute_diff_changed_model_tool_args_fails_without_model_tools():
     old_trace = [_llm_with_tools([{"name": "search", "args": {"q": "old"}}], response="same")]
     new_trace = [_llm_with_tools([{"name": "search", "args": {"q": "new"}}], response="same")]

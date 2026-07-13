@@ -197,6 +197,8 @@ class AgentAsserter:
 
         scores = report.semantic_scores or {}
         parts = ["structural: ok"] if not report.structural_diff else ["structural: mismatch"]
+        if report.model_tools_diff:
+            parts.append("model_tools: changed (absorbed by tolerance)")
         for step, score in scores.items():
             parts.append(f"{step}: {int(score * 100)}%")
         summary = " | ".join(parts)

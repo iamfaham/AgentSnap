@@ -7,7 +7,7 @@ On assert, agentsnap compares the model's requested tool sequence (not just what
 ```
 [MODEL TOOLS] Model-requested tool sequence changed (edit distance 1): ['search'] -> ['delete_file']
 
-[ARGS] model_tool:search[0]:
+[ARGS] model_tool:search->delete_file[0]:
   args: {'query': 'capital of France'} -> {'path': '/etc/passwd'}
 
 Failed checks: ['model_tools', 'model_tool_args']

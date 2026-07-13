@@ -105,6 +105,26 @@ def test_diff_shows_structural_ok_when_tolerance_absorbs_change(tmp_path):
     assert "mismatch" not in result.output
 
 
+def test_diff_shows_model_tools_absorbed_hint_on_passed_line(tmp_path):
+    snap_dir = str(tmp_path)
+    _write(tmp_path / "my_test.json", _SNAP)
+    _write(tmp_path / ".last_run" / "my_test.json", _SNAP)
+
+    with patch("agentsnap.core.diff.compute_diff",
+               return_value=DiffReport(
+                   passed=True,
+                   model_tools_diff="Model-requested tool sequence changed (edit distance 1): ...",
+                   semantic_scores={"output": 0.97},
+               )):
+        with patch("agentsnap.config.judge_from_env", return_value=None):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["diff", "my_test", f"--snapshot-dir={snap_dir}"])
+
+    assert result.exit_code == 0
+    assert "PASSED" in result.output
+    assert "model_tools: changed (absorbed by tolerance)" in result.output
+
+
 def test_diff_shows_failed_and_exits_1_when_report_fails(tmp_path):
     snap_dir = str(tmp_path)
     _write(tmp_path / "my_test.json", _SNAP)

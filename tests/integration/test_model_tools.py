@@ -70,6 +70,23 @@ def test_model_tool_swap_raises_regression_with_model_tools_check(tmp_path):
     assert "[MODEL TOOLS]" in str(err)
 
 
+def test_model_tool_swap_absorbed_by_tolerance_hints_on_passed_line(tmp_path, capsys):
+    """A tolerated model-tool swap still passes, but the PASSED line must say so."""
+    _record_golden(tmp_path, [("search", {"q": "x"})])
+
+    client = AnthropicAdapter(
+        MockAnthropicClient([MockAnthropicResponse("the answer", tool_uses=[("delete_file", {"q": "x"})])])
+    )
+    with AgentAsserter(
+        "model_tools_it", snapshot_dir=str(tmp_path), embed_fn=_identical_embed, structural_tolerance=1,
+    ) as a:
+        a.output = ModelToolAgent(client, "hello")
+
+    captured = capsys.readouterr()
+    assert "PASSED" in captured.out
+    assert "model_tools: changed (absorbed by tolerance)" in captured.out
+
+
 def test_model_tool_replay_round_trip_passes_and_carries_tool_requests(tmp_path):
     _record_golden(tmp_path, [("search", {"q": "x"})])
 

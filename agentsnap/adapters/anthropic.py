@@ -3,6 +3,7 @@ from __future__ import annotations
 from agentsnap.adapters._raw_response import (
     RawResponseStreamShim,
     ReplayLegacyResponse,
+    reconstruct_event_with_clear_errors,
     unwrap_legacy_response,
     wants_raw_response,
 )
@@ -53,17 +54,7 @@ def reconstruct(raw: dict):
 
 def reconstruct_event(event: dict):
     """Rebuild the recorded response for a replayed event, with a clear error on failure."""
-    try:
-        return reconstruct(event["raw_response"])
-    except ReplayError:
-        raise
-    except Exception as e:
-        raise ReplayError(
-            f"Failed to reconstruct the recorded response for llm_call step "
-            f"{event.get('step', '?')} — the snapshot may be corrupt or recorded "
-            f"under a different SDK version ({e}). "
-            "Re-record the golden: pytest --agentsnap-record"
-        ) from e
+    return reconstruct_event_with_clear_errors(reconstruct, event, this_api="Anthropic")
 
 
 def replay_stream(chunk_dicts):
@@ -262,6 +253,16 @@ class AsyncAnthropicRecordingStream(AnthropicRecordingStream):
 
     async def __aexit__(self, *args) -> None:
         await self.aclose()
+
+    def __iter__(self):
+        raise TypeError(
+            "AsyncAnthropicRecordingStream wraps an async stream — use 'async for' / 'async with'"
+        )
+
+    def __enter__(self):
+        raise TypeError(
+            "AsyncAnthropicRecordingStream wraps an async stream — use 'async for' / 'async with'"
+        )
 
     def close(self) -> None:
         # TraceAccumulator.finalize_streams() runs synchronously at context

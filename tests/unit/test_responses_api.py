@@ -361,6 +361,34 @@ def test_reconstruct_response_event_corrupt_raises_replay_error_with_hint():
     assert "pytest --agentsnap-record" in message
 
 
+def test_reconstruct_response_event_names_cross_api_mismatch():
+    """A chat.completion payload fed to the Responses reconstructor names the mismatch."""
+    event = {
+        "raw_response": {"object": "chat.completion", "id": "chatcmpl-1"},
+        "step": 4,
+    }
+    with pytest.raises(ReplayError) as exc_info:
+        reconstruct_response_event(event)
+    message = str(exc_info.value)
+    assert "chat.completion" in message
+    assert "call order" in message
+
+
+def test_reconstruct_event_names_cross_api_mismatch():
+    """A Responses API payload fed to the Chat Completions reconstructor names the mismatch."""
+    from agentsnap.adapters.openai import reconstruct_event
+
+    event = {
+        "raw_response": {"object": "response", "id": "resp-1"},
+        "step": 5,
+    }
+    with pytest.raises(ReplayError) as exc_info:
+        reconstruct_event(event)
+    message = str(exc_info.value)
+    assert "response" in message
+    assert "call order" in message
+
+
 def test_reconstruct_response_lenient_on_schema_drift():
     """A dump that fails strict validation (SDK schema evolution) still reconstructs."""
     from agentsnap.adapters.openai import reconstruct_response

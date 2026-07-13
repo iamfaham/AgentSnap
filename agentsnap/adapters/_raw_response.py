@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import warnings
 
+from agentsnap.exceptions import ReplayError
+
 
 def unwrap_legacy_response(response):
     """Unwrap an SDK ``LegacyAPIResponse`` into the parsed model it wraps.
@@ -64,7 +66,14 @@ class ReplayLegacyResponse:
         return self._parsed
 
     def __getattr__(self, name):
-        return getattr(self._parsed, name)
+        try:
+            return getattr(self._parsed, name)
+        except AttributeError:
+            raise AttributeError(
+                f"{name!r} is not available on this replayed response: real HTTP "
+                "response metadata (headers, status_code, etc.) is not recorded "
+                "during snapshot capture, so it can't be reconstructed during replay."
+            ) from None
 
 
 class RawResponseStreamShim:
@@ -88,3 +97,49 @@ class RawResponseStreamShim:
 
     def __getattr__(self, name):
         return getattr(self._legacy, name)
+
+
+def reconstruct_event_with_clear_errors(
+    reconstruct_fn,
+    event: dict,
+    *,
+    this_api: str,
+    other_marker: str | None = None,
+):
+    """Rebuild a recorded response, wrapping reconstruction failures in a clear ReplayError.
+
+    Shared body for openai's ``reconstruct_event``/``reconstruct_response_event``
+    and anthropic's ``reconstruct_event``. When ``reconstruct_fn`` raises:
+
+    - If ``other_marker`` is given and the raw dict's ``"object"`` field matches
+      it, the raw payload belongs to *another* API (e.g. a Responses API dump
+      fed through the Chat Completions reconstructor). This almost always means
+      the agent's call order changed since the golden was recorded, so the
+      error names both APIs explicitly instead of reporting generic corruption.
+    - Otherwise the snapshot is genuinely corrupt or was recorded under a
+      different SDK version, and the original (generic) message is used.
+    """
+    try:
+        return reconstruct_fn(event["raw_response"])
+    except ReplayError:
+        raise
+    except Exception as e:
+        step = event.get("step", "?")
+        raw = event.get("raw_response")
+        if (
+            other_marker is not None
+            and isinstance(raw, dict)
+            and raw.get("object") == other_marker
+        ):
+            raise ReplayError(
+                f"Recorded llm_call step {step} is a {other_marker!r} payload but "
+                f"was replayed through the {this_api} API — the agent's call order "
+                "likely changed since recording. "
+                "Re-record the golden: pytest --agentsnap-record"
+            ) from e
+        raise ReplayError(
+            f"Failed to reconstruct the recorded response for llm_call step "
+            f"{step} — the snapshot may be corrupt or recorded "
+            f"under a different SDK version ({e}). "
+            "Re-record the golden: pytest --agentsnap-record"
+        ) from e

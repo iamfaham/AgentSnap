@@ -313,6 +313,22 @@ def test_anthropic_async_patcher_sync_close_records_without_touching_inner():
     assert inner.aclose_called is False
 
 
+def test_anthropic_async_stream_rejects_sync_iteration():
+    from agentsnap.adapters.anthropic import AsyncAnthropicRecordingStream
+
+    inner = _FakeAsyncStream([_AnthEvent("content_block_delta", delta=_AnthDelta("hi"))])
+    acc, token = _make_acc()
+    try:
+        stream = AsyncAnthropicRecordingStream(inner, [{"role": "user", "content": "hi"}], acc)
+        with pytest.raises(TypeError, match="async for.*async with"):
+            iter(stream)
+        with pytest.raises(TypeError, match="async for.*async with"):
+            with stream:
+                pass
+    finally:
+        _accumulator_var.reset(token)
+
+
 # ── Anthropic async: replay ────────────────────────────────────────────────────
 
 def test_anthropic_async_patcher_replay_non_stream_never_calls_original():
@@ -590,6 +606,22 @@ def test_openai_async_patcher_sync_close_records_without_touching_inner():
 
     assert len(acc.trace) == 1
     assert inner.aclose_called is False
+
+
+def test_openai_async_stream_rejects_sync_iteration():
+    from agentsnap.adapters.openai import AsyncOpenAIRecordingStream
+
+    inner = _FakeAsyncStream([_OAIChunk("hi")])
+    acc, token = _make_acc()
+    try:
+        stream = AsyncOpenAIRecordingStream(inner, [{"role": "user", "content": "hi"}], acc)
+        with pytest.raises(TypeError, match="async for.*async with"):
+            iter(stream)
+        with pytest.raises(TypeError, match="async for.*async with"):
+            with stream:
+                pass
+    finally:
+        _accumulator_var.reset(token)
 
 
 # ── OpenAI async: replay ───────────────────────────────────────────────────────

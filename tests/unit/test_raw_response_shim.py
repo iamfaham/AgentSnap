@@ -112,6 +112,16 @@ def test_replay_legacy_response_forwards_other_attrs():
     assert legacy.output_text == "hello"
 
 
+def test_replay_legacy_response_missing_attr_explains_unavailable_metadata():
+    parsed = _Parsed()
+    legacy = ReplayLegacyResponse(parsed)
+    with pytest.raises(AttributeError) as exc_info:
+        legacy.headers
+    message = str(exc_info.value)
+    assert "headers" in message
+    assert "not recorded" in message or "not available" in message
+
+
 # ── RawResponseStreamShim ────────────────────────────────────────────────────
 
 class _Legacy:

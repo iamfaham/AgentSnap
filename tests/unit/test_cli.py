@@ -265,6 +265,35 @@ def test_status_handles_unreadable_json_gracefully(tmp_path):
     assert result.exit_code == 1
 
 
+def test_status_corrupt_orphan_last_run_flags_unreadable(tmp_path):
+    """An orphan .last_run/*.json with no matching golden is still parsed;
+    corrupt JSON renders '(unreadable)' and exits 1, a readable orphan
+    keeps the pre-existing plain 'unapproved new run' label."""
+    snap_dir = tmp_path
+    new_ts = "2026-01-02T00:00:00+00:00"
+
+    # At least one golden must exist, or status_cmd short-circuits before the orphan loop.
+    _write(snap_dir / "passing_agent.json", _SNAP)
+
+    # Readable orphan: no matching golden, valid JSON — unaffected by this change.
+    _write(
+        snap_dir / ".last_run" / "orphan_agent.json",
+        {**_SNAP, "recorded_at": new_ts, "result": {"passed": True, "failed_checks": [], "mode": "live"}},
+    )
+
+    # Corrupt orphan: no matching golden, invalid JSON.
+    corrupt = snap_dir / ".last_run" / "corrupt_orphan_agent.json"
+    corrupt.parent.mkdir(parents=True, exist_ok=True)
+    corrupt.write_text("{not valid json", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["status", f"--snapshot-dir={snap_dir}"])
+
+    assert "corrupt_orphan_agent" in result.output and "unapproved new run (unreadable)" in result.output
+    assert "orphan_agent" in result.output and "unapproved new run\n" in result.output
+    assert result.exit_code == 1
+
+
 def test_show_pretty_prints_json(tmp_path):
     """'show' command replaces the old 'diff' pretty-print behavior."""
     snap_file = tmp_path / "my_test.json"

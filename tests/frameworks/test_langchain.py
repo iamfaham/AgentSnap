@@ -170,15 +170,10 @@ def test_langchain_async_ainvoke_replay_never_touches_wire(tmp_path):
 # ── Responses-route record (Fix 1): use_responses_api=True ─────────────────
 # langchain-openai's Responses route calls
 # responses.with_raw_response.create() directly, so the record-side unwrap
-# (_apply_openai_responses) must run the same way it does for chat. A full
-# replay round-trip through this route additionally hits a pre-existing
-# reconstruct_response() gap (the real SDK's Responses object dumps
-# usage.input_tokens_details.cache_write_tokens as null, which
-# Response.model_validate then rejects as a required int) — unrelated to
-# this fix, so only the record side is covered here.
+# (_apply_openai_responses) must run the same way it does for chat.
 
-def test_langchain_responses_route_record_unwraps_raw_response(tmp_path):
-    payload = {
+def _responses_route_payload(text: str) -> dict:
+    return {
         "id": "resp_123",
         "created_at": 1700000000,
         "model": "gpt-4o-mini",
@@ -193,7 +188,7 @@ def test_langchain_responses_route_record_unwraps_raw_response(tmp_path):
                 "role": "assistant",
                 "status": "completed",
                 "content": [
-                    {"type": "output_text", "text": "hi from responses route", "annotations": []},
+                    {"type": "output_text", "text": text, "annotations": []},
                 ],
             }
         ],
@@ -205,6 +200,10 @@ def test_langchain_responses_route_record_unwraps_raw_response(tmp_path):
             "output_tokens_details": {"reasoning_tokens": 0},
         },
     }
+
+
+def test_langchain_responses_route_record_unwraps_raw_response(tmp_path):
+    payload = _responses_route_payload("hi from responses route")
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=payload)
@@ -228,3 +227,49 @@ def test_langchain_responses_route_record_unwraps_raw_response(tmp_path):
     assert llm_calls[0]["response"] == "hi from responses route"
     assert llm_calls[0]["tokens"] == 15
     assert llm_calls[0]["raw_response"] is not None
+
+
+# ── Responses-route replay round trip ───────────────────────────────────────
+# Previously skipped: reconstruct_response() rejected the real SDK's dump of
+# usage.input_tokens_details.cache_write_tokens as null (missing required
+# int). It8's lenient reconstruction (ee48e75, _lenient_reconstruct +
+# construct_type fallback, gated on the "response" object marker) unblocks
+# this path — pin the full record -> replay round trip through the Responses
+# route with a raising transport so a regression here is caught.
+
+def test_langchain_responses_route_replay_never_touches_wire(tmp_path):
+    payload = _responses_route_payload("hi from responses replay")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    sync_client = httpx.Client(transport=httpx.MockTransport(handler))
+    chat = ChatOpenAI(
+        api_key="test",
+        model="gpt-4o-mini",
+        use_responses_api=True,
+        http_client=sync_client,
+    )
+
+    with PatchSet():
+        with AgentRecorder("lc_responses_replay", snapshot_dir=str(tmp_path)) as rec:
+            result = chat.invoke("hi")
+            rec.output = result.content
+
+    replay_sync_client = httpx.Client(transport=httpx.MockTransport(_raising_handler))
+    replay_chat = ChatOpenAI(
+        api_key="test",
+        model="gpt-4o-mini",
+        use_responses_api=True,
+        http_client=replay_sync_client,
+    )
+
+    with PatchSet():
+        with AgentAsserter(
+            "lc_responses_replay",
+            snapshot_dir=str(tmp_path),
+            mode="replay",
+            embed_fn=_identical_embed,
+        ) as a:
+            result = replay_chat.invoke("hi")
+            a.output = result.content

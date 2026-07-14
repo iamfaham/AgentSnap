@@ -287,3 +287,42 @@ def test_pytester_ini_mode_replay_resolves_without_flags(pytester: pytest.Pytest
     result = pytester.runpytest()  # no flags; ini alone should resolve to replay
     result.assert_outcomes(passed=1)
     assert _last_run_mode(pytester) == "replay"
+
+
+def test_pytester_live_flag_alone_beats_ini_replay(pytester: pytest.Pytester) -> None:
+    """agentsnap_mode = replay in ini, with ONLY --agentsnap-live on the CLI, resolves to live
+    (the flag beats the ini default even without an accompanying --agentsnap-replay flag)."""
+    pytester.makeconftest("")
+    pytester.makeini(
+        """
+        [pytest]
+        agentsnap_mode = replay
+        """
+    )
+    pytester.makepyfile(test_flag_e2e=_STUB_TEST_SOURCE)
+
+    pytester.runpytest().assert_outcomes(passed=1)  # record
+
+    result = pytester.runpytest("--agentsnap-live")
+    result.assert_outcomes(passed=1)
+    assert _last_run_mode(pytester) == "live"
+
+
+def test_pytester_record_flag_forces_rerecord_over_existing_golden(pytester: pytest.Pytester) -> None:
+    """--agentsnap-record forces a re-record even when a golden already exists: the
+    golden's recorded_at/content changes and the summary shows RECORDED, not PASSED."""
+    pytester.makeconftest("")
+    pytester.makepyfile(test_flag_e2e=_STUB_TEST_SOURCE)
+
+    pytester.runpytest().assert_outcomes(passed=1)  # initial record
+
+    golden_path = pytester.path / "__agent_snapshots__" / "flag_e2e.json"
+    golden_before = json.loads(golden_path.read_text(encoding="utf-8"))
+
+    result = pytester.runpytest("--agentsnap-record")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*agentsnap snapshots*", "*RECORDED*flag_e2e*"])
+    assert not any("PASSED" in line and "flag_e2e" in line for line in result.outlines)
+
+    golden_after = json.loads(golden_path.read_text(encoding="utf-8"))
+    assert golden_after["recorded_at"] != golden_before["recorded_at"]

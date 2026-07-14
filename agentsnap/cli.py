@@ -509,7 +509,7 @@ def list_cmd(snapshot_dir: str) -> None:
 @cli.command("status")
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 def status_cmd(snapshot_dir: str) -> None:
-    """Show pass/fail/stale status for every snapshot (CI-friendly, exits 1 on FAIL or unreadable golden/matched last-run files)."""
+    """Show pass/fail/stale status for every snapshot (CI-friendly, exits 1 on FAIL or any unreadable file — golden, matched last-run, or orphaned last-run)."""
     snapshots = list_snapshots(snapshot_dir)
     if not snapshots:
         click.echo(f"No snapshots found in '{snapshot_dir}'.")
@@ -579,6 +579,13 @@ def status_cmd(snapshot_dir: str) -> None:
     if last_run_dir.exists():
         for lr in sorted(last_run_dir.glob("*.json")):
             if lr.stem not in matched_names:
+                try:
+                    json.loads(lr.read_text(encoding="utf-8"))
+                except Exception:
+                    click.secho(f"  {lr.stem:<40} unapproved new run (unreadable)", fg="white", dim=True)
+                    counts["unapproved"] = counts.get("unapproved", 0) + 1
+                    any_unreadable = True
+                    continue
                 click.secho(f"  {lr.stem:<40} unapproved new run", fg="white", dim=True)
                 counts["unapproved"] = counts.get("unapproved", 0) + 1
 

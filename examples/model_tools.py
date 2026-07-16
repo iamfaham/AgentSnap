@@ -176,14 +176,14 @@ def real_demo(snapshot_dir: str) -> None:
 
     ex.subheader("Step 1  Record the golden run: the real model decides whether to call get_weather")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
             a.output = call()
     print(f"  golden snapshot recorded: {name}.json -- {a.output}")
     print("  (tool_requests, if any, are captured on the llm_call event)")
 
     ex.subheader("Step 2  Replay assert -- ZERO network, same tool decision reproduced")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay") as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed) as a:
             a.output = call()
     print("  PASSED deterministically -- no API call was made this run.")
 

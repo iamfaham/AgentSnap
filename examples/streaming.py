@@ -227,13 +227,13 @@ def real_demo(snapshot_dir: str) -> None:
 
     ex.subheader("Step 1  Record a real streamed call (chunks arrive incrementally)")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
             a.output = call_stream(query)
     print(f"  golden snapshot recorded: {name}.json -- output: {a.output!r}")
 
     ex.subheader("Step 2  Replay -- ZERO network, even though the golden is real")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay") as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed) as a:
             a.output = call_stream(query)
     print(f"  PASSED deterministically -- output: {a.output!r}")
 

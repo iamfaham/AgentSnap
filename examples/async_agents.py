@@ -161,13 +161,13 @@ async def _real_demo_async(snapshot_dir: str) -> None:
 
     ex.subheader("Step 1  Record an async agent against the real API")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
             a.output = await call(query)
     print(f"  golden snapshot recorded: {name}.json")
 
     ex.subheader("Step 2  Replay assert -- ZERO live async calls, even though the golden is real")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay") as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed) as a:
             a.output = await call(query)
     print("  PASSED deterministically -- no async API call was made this run.")
 

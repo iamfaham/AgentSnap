@@ -29,7 +29,11 @@ Real calls use `temperature=0` and `max_tokens<=150` to stay cheap and close to
 deterministic. Set any one of the three in a `.env` file at the repo root (or
 in your shell) and `--real` will pick it up automatically -- set
 `AGENTSNAP_SKIP_DOTENV=1` to skip `.env` loading. Mock mode never touches
-`.env` or the network.
+`.env` or the network. Every `--real` demo scores similarity with the
+built-in lightweight comparator in `_common.demo_embed()`, so a single
+provider key is all you need -- no judge, no downloaded model, no extra
+setup; real projects should run `agentsnap init` to configure a proper
+comparison backend instead.
 
 ## `--keep`
 

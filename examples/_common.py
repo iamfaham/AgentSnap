@@ -30,6 +30,7 @@ import argparse
 import os
 import shutil
 import tempfile
+import zlib
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,29 @@ def header(title: str) -> None:
 
 def subheader(title: str) -> None:
     print(f"\n{THIN}\n  {title}\n{THIN}")
+
+
+# ---------------------------------------------------------------------------
+# Lightweight comparator (no sentence-transformers, no judge, no network)
+# ---------------------------------------------------------------------------
+
+def demo_embed(texts: list[str]) -> list[list[float]]:
+    """Deterministic offline embedding stub: hashed bag-of-words.
+
+    Every example uses this instead of agentsnap's default sentence-transformers
+    backend, so the demos need no extra dependency, no downloaded model, and no
+    API key beyond whichever provider key drives --real. Identical texts score
+    1.0; texts with different words score low -- enough to demonstrate
+    PASS/FAIL. Real projects should run `agentsnap init` to set up a proper
+    comparison backend instead of using this.
+    """
+    vecs = []
+    for text in texts:
+        v = [0.0] * 256
+        for word in text.lower().split():
+            v[zlib.crc32(word.encode()) % 256] += 1.0
+        vecs.append(v)
+    return vecs
 
 
 # ---------------------------------------------------------------------------

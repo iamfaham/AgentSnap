@@ -27,7 +27,6 @@ from __future__ import annotations
 import shutil
 import sys
 import unittest.mock as mock
-import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -40,22 +39,6 @@ from agentsnap.core.snapshot import last_run_path, snapshot_path
 from agentsnap.exceptions import AgentRegressionError
 
 NAME = "quickstart"
-
-
-def _embed(texts: list[str]) -> list[list[float]]:
-    """Deterministic offline embedding stub: hashed bag-of-words.
-
-    Keeps the mock demo free of a sentence-transformers dependency and any
-    network call -- identical texts score 1.0, different ones score low,
-    which is all the demo needs to show PASS/FAIL.
-    """
-    vecs = []
-    for text in texts:
-        v = [0.0] * 256
-        for word in text.lower().split():
-            v[zlib.crc32(word.encode()) % 256] += 1.0
-        vecs.append(v)
-    return vecs
 
 
 def _agent(query: str) -> str:
@@ -84,21 +67,21 @@ def mock_demo(snapshot_dir: str) -> None:
     ex.subheader("Step 1  First run -- no snapshot yet, golden recorded automatically")
     with mock.patch.object(_AnthMessages, "create", return_value=golden_response):
         with PatchSet():
-            with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=_embed) as a:
+            with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
                 a.output = _agent(query)
     print(f"  Golden snapshot written: {NAME}.json")
 
     ex.subheader("Step 2  Identical run -- expect PASS with similarity scores")
     with mock.patch.object(_AnthMessages, "create", return_value=golden_response):
         with PatchSet():
-            with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=_embed) as a:
+            with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
                 a.output = _agent(query)
 
     ex.subheader("Step 3  Regression -- the agent's output drifts")
     try:
         with mock.patch.object(_AnthMessages, "create", return_value=drifted_response):
             with PatchSet():
-                with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=_embed) as a:
+                with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
                     a.output = "The agent now produces a completely different final answer."
     except AgentRegressionError as e:
         print(str(e))
@@ -114,7 +97,7 @@ def mock_demo(snapshot_dir: str) -> None:
     ex.subheader("Step 5  Re-run after approval -- expect PASS with the new baseline")
     with mock.patch.object(_AnthMessages, "create", return_value=drifted_response):
         with PatchSet():
-            with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=_embed) as a:
+            with AgentAsserter(NAME, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
                 a.output = "The agent now produces a completely different final answer."
 
 
@@ -127,7 +110,8 @@ def real_demo(snapshot_dir: str) -> None:
         return
 
     ex.header(f"QUICKSTART (real)  --  provider: {detected.provider}, model: {detected.model}")
-    print("  Same journey, against a real LLM. The 'regression' is a deliberate prompt change.\n")
+    print("  Same journey, against a real LLM. The 'regression' is a deliberate prompt change.")
+    print("  Similarity is scored with a built-in lightweight comparator (no extra backend needed).\n")
 
     name = f"{NAME}_real"
 
@@ -152,19 +136,19 @@ def real_demo(snapshot_dir: str) -> None:
 
     ex.subheader("Step 1  First run -- no snapshot yet, golden recorded automatically")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
             a.output = call("Summarize agentsnap in five words.")
     print(f"  Golden snapshot written: {name}.json")
 
     ex.subheader("Step 2  Identical run -- expect PASS")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
             a.output = call("Summarize agentsnap in five words.")
 
     ex.subheader("Step 3  Regression -- deliberately changed prompt")
     try:
         with PatchSet():
-            with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+            with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
                 a.output = call("Write a haiku about snapshot testing.")
     except AgentRegressionError as e:
         print(str(e))
@@ -179,7 +163,7 @@ def real_demo(snapshot_dir: str) -> None:
 
     ex.subheader("Step 5  Re-run after approval -- expect PASS with the new baseline")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
             a.output = call("Write a haiku about snapshot testing.")
 
 

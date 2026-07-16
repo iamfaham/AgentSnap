@@ -159,13 +159,13 @@ def real_demo(snapshot_dir: str) -> None:
 
     ex.subheader("Step 1  Record the golden run against the real API")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir) as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
             a.output = call(query_v1)
     print(f"  Golden snapshot recorded: {name}.json (with raw_response for replay)")
 
     ex.subheader("Step 2  Replay assert -- ZERO network, even though the golden is real")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay") as a:
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed) as a:
             a.output = call(query_v1)
     print("  PASSED deterministically -- no API call was made this run.")
 
@@ -173,7 +173,7 @@ def real_demo(snapshot_dir: str) -> None:
     query_v2 = "Write a haiku about snapshot testing."
     try:
         with PatchSet():
-            with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay") as a:
+            with AgentAsserter(name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed) as a:
                 a.output = call(query_v2)
         print("  ERROR: should have failed!")
     except AgentRegressionError as e:

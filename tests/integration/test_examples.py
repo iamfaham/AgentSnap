@@ -120,6 +120,26 @@ def test_demo_tool_use_runs_clean():
     assert "model_tools" in result.stdout
 
 
+def test_quickstart_mock_runs_clean():
+    """quickstart.py's mock_demo must record, pass, catch a regression, approve, and re-pass."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "quickstart.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"quickstart.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "no snapshot for 'quickstart' - recording golden run" in result.stdout
+    assert "'quickstart' PASSED" in result.stdout
+    assert "Agent regression in 'quickstart'" in result.stdout
+    assert "Approved -- .last_run/quickstart.json promoted to golden." in result.stdout
+    assert "Quickstart complete" in result.stdout
+
+
 def test_demo_mock_includes_zero_instrumentation(tmp_path):
     """demo_mock.py stdout must mention zero-instrumentation."""
     result = subprocess.run(

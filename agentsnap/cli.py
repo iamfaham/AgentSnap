@@ -583,7 +583,7 @@ def status_cmd(snapshot_dir: str) -> None:
                     json.loads(lr.read_text(encoding="utf-8"))
                 except Exception:
                     click.secho(f"  {lr.stem:<40} unapproved new run (unreadable)", fg="white", dim=True)
-                    counts["unapproved"] = counts.get("unapproved", 0) + 1
+                    counts["unreadable"] = counts.get("unreadable", 0) + 1
                     any_unreadable = True
                     continue
                 click.secho(f"  {lr.stem:<40} unapproved new run", fg="white", dim=True)

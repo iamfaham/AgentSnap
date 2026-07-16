@@ -22,6 +22,11 @@ def unwrap_legacy_response(response):
     exposes a callable ``.parse`` of its own, so identity is returned unless
     one is present.
     """
+    # NOTE: a positive attribute fast-guard (.choices/.output/.content) was
+    # tried here and reverted — the LegacyAPIResponse wrapper itself exposes
+    # `.content` (the raw HTTP body), so the guard misclassified wrapped
+    # anthropic/langchain calls as already-parsed. callable(.parse) is the
+    # discriminating predicate: parsed SDK models never expose one.
     parse = getattr(response, "parse", None)
     if not callable(parse):
         return response

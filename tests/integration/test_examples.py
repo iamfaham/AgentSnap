@@ -142,6 +142,81 @@ def test_quickstart_mock_runs_clean():
     assert "Quickstart complete" in result.stdout
 
 
+def test_scenarios_mock_runs_clean():
+    """scenarios.py's mock_demo must write an explicit-scenario and an auto-hash golden, and warn once."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "scenarios.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"scenarios.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "weather__us_west.json" in result.stdout
+    assert "weather__" in result.stdout and "sha8 of" in result.stdout
+    assert "WARNING: input changed since snapshot was recorded" in result.stdout
+    assert "Scenarios complete" in result.stdout
+
+
+def test_tuning_mock_runs_clean():
+    """tuning.py's mock_demo must show a threshold-driven pass/fail and a tolerance-absorbed tool swap."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "tuning.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"tuning.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "'tuning_output' PASSED" in result.stdout
+    assert "Caught by the strict threshold" in result.stdout
+    assert "model_tools: changed (absorbed by tolerance)" in result.stdout
+    assert "Tuning complete" in result.stdout
+
+
+def test_cli_workflow_mock_runs_clean():
+    """cli_workflow.py's mock_demo must drive `agentsnap status`/`update` via subprocess through fail then pass."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "cli_workflow.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"cli_workflow.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "FAIL   semantic:output" in result.stdout
+    assert "(exit code: 1)" in result.stdout
+    assert "PASS   (live)" in result.stdout
+    assert "CLI workflow complete" in result.stdout
+
+
+def test_pytest_fixture_mock_runs_clean():
+    """pytest_fixture.py's mock_demo must record then pass in a subprocess-run pytest, twice."""
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES_DIR / "pytest_fixture.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"pytest_fixture.py exited {result.returncode}\n"
+        f"STDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+    assert "RECORDED my_agent recorded golden run" in result.stdout
+    assert "PASSED   my_agent (live)" in result.stdout
+    assert "Pytest fixture complete" in result.stdout
+
+
 def test_demo_mock_includes_zero_instrumentation(tmp_path):
     """demo_mock.py stdout must mention zero-instrumentation."""
     result = subprocess.run(

@@ -51,51 +51,53 @@ def test_demo_real_exits_zero_without_keys(tmp_path):
     assert "skipped" in result.stdout.lower()
 
 
-def test_demo_replay_runs_clean():
-    """demo_replay.py must record, replay with zero live calls, and catch a prompt edit."""
+def test_replay_mock_runs_clean():
+    """replay.py's mock_demo must record, replay with zero live calls, catch a prompt edit, and stub tools."""
     result = subprocess.run(
-        [sys.executable, str(EXAMPLES_DIR / "demo_replay.py")],
+        [sys.executable, str(EXAMPLES_DIR / "replay.py")],
         capture_output=True,
         text=True,
         timeout=120,
     )
     assert result.returncode == 0, (
-        f"demo_replay.py exited {result.returncode}\n"
+        f"replay.py exited {result.returncode}\n"
         f"STDOUT:\n{result.stdout}\n"
         f"STDERR:\n{result.stderr}"
     )
     assert "PASSED deterministically" in result.stdout
     assert "Caught the prompt change" in result.stdout
+    assert "the tool function never ran" in result.stdout
 
 
-def test_demo_streaming_runs_clean():
-    """demo_streaming.py must record a streaming call, then replay it with zero live calls."""
+def test_streaming_mock_runs_clean():
+    """streaming.py's mock_demo must record a streaming call, replay it with zero live calls, and finalize an abandoned stream."""
     result = subprocess.run(
-        [sys.executable, str(EXAMPLES_DIR / "demo_streaming.py")],
+        [sys.executable, str(EXAMPLES_DIR / "streaming.py")],
         capture_output=True,
         text=True,
         timeout=120,
     )
     assert result.returncode == 0, (
-        f"demo_streaming.py exited {result.returncode}\n"
+        f"streaming.py exited {result.returncode}\n"
         f"STDOUT:\n{result.stdout}\n"
         f"STDERR:\n{result.stderr}"
     )
     assert "chunks arrived incrementally" in result.stdout
     assert "PASSED deterministically" in result.stdout
     assert "ZERO live API calls" in result.stdout
+    assert "abandoned after 2 chunks" in result.stdout
 
 
-def test_demo_async_runs_clean():
-    """demo_async.py must record an async client, replay with zero live calls, and catch a prompt edit."""
+def test_async_agents_mock_runs_clean():
+    """async_agents.py's mock_demo must record an async client, replay with zero live calls, and catch a prompt edit."""
     result = subprocess.run(
-        [sys.executable, str(EXAMPLES_DIR / "demo_async.py")],
+        [sys.executable, str(EXAMPLES_DIR / "async_agents.py")],
         capture_output=True,
         text=True,
         timeout=120,
     )
     assert result.returncode == 0, (
-        f"demo_async.py exited {result.returncode}\n"
+        f"async_agents.py exited {result.returncode}\n"
         f"STDOUT:\n{result.stdout}\n"
         f"STDERR:\n{result.stderr}"
     )
@@ -103,16 +105,16 @@ def test_demo_async_runs_clean():
     assert "Caught the prompt change" in result.stdout
 
 
-def test_demo_tool_use_runs_clean():
-    """demo_tool_use.py must record a model tool decision and catch it changing."""
+def test_model_tools_mock_runs_clean():
+    """model_tools.py's mock_demo must record a model tool decision and catch it changing."""
     result = subprocess.run(
-        [sys.executable, str(EXAMPLES_DIR / "demo_tool_use.py")],
+        [sys.executable, str(EXAMPLES_DIR / "model_tools.py")],
         capture_output=True,
         text=True,
         timeout=120,
     )
     assert result.returncode == 0, (
-        f"demo_tool_use.py exited {result.returncode}\n"
+        f"model_tools.py exited {result.returncode}\n"
         f"STDOUT:\n{result.stdout}\n"
         f"STDERR:\n{result.stderr}"
     )

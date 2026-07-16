@@ -27,8 +27,8 @@ Agents regress silently. A prompt tweak, a model swap, a tool wired to the wrong
 A prompt edit caught by replay mode, no API call required:
 
 ```
-Agent regression in 'demo_replay'
-=================================
+Agent regression in 'replay'
+============================
 
 [ARGS] llm_call[0].messages:
   messages: [{'content': 'Answer concisely: What is Python?', ...}] ->

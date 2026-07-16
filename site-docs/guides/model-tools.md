@@ -23,4 +23,4 @@ Scope today: non-streaming Anthropic and OpenAI calls, plus Groq/OpenRouter via 
 
 ## Demo
 
-See `examples/demo_tool_use.py` for a full runnable walkthrough: record a golden run where the model requests `search`, re-run it unchanged, then watch agentsnap catch the model requesting `delete_file` instead.
+See `examples/model_tools.py` for a full runnable walkthrough: record a golden run where the model requests `search`, re-run it unchanged, then watch agentsnap catch the model requesting `delete_file` instead.

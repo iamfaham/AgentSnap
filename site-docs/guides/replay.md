@@ -35,7 +35,7 @@ with AgentAsserter("my_agent", mode="replay", replay_tools=True) as a:
     a.output = my_agent(client, search_tool, "What is Python?")
 ```
 
-See `examples/demo_replay.py` for a full runnable walkthrough: record a golden run, replay it with the network disabled to prove zero live calls, then watch replay catch a prompt edit instantly.
+See `examples/replay.py` for a full runnable walkthrough: record a golden run, replay it with the network disabled to prove zero live calls, then watch replay catch a prompt edit instantly.
 
 ## Caveats
 
@@ -43,6 +43,6 @@ See `examples/demo_replay.py` for a full runnable walkthrough: record a golden r
 - Replay currently supports Anthropic, OpenAI, Groq, and OpenRouter. Other providers raise `ReplayError` — use live mode for those tests.
 - With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash is not available because the snapshot is read before the test body runs).
 - If the replayed final output isn't byte-identical to the golden, scoring it needs a semantic backend — install and configure the embeddings backend (`pip install agentsnap[offline]`, then `agentsnap init` option 2) or configure a judge (`AGENTSNAP_JUDGE_API_KEY`).
-- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) are intercepted too — replay's no-network guarantee covers both sync and async clients, including async streams. The one remaining hole is the streamed OpenAI Responses API (`responses.create(stream=True)`), which passes through unrecorded. See `examples/demo_async.py`.
+- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) are intercepted too — replay's no-network guarantee covers both sync and async clients, including async streams. The one remaining hole is the streamed OpenAI Responses API (`responses.create(stream=True)`), which passes through unrecorded. See `examples/async_agents.py`.
 
 For streaming-specific replay behavior, see [Streaming](streaming.md).

@@ -344,9 +344,9 @@ Notes:
 - Replay currently supports Anthropic, OpenAI, Groq, and OpenRouter. Other providers raise `ReplayError` — use live mode for those tests.
 - With scenarios, pass `scenario=` explicitly in replay mode (input auto-hash is not available because the snapshot is read before the test body runs).
 - If the replayed final output isn't byte-identical to the golden, scoring it needs a semantic backend — install and configure the embeddings backend (`pip install agentsnap[offline]`, then `agentsnap init` option 2) or configure a judge (`AGENTSNAP_JUDGE_API_KEY`).
-- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) are intercepted too — replay's no-network guarantee covers both sync and async clients, including async streams. The one remaining hole is the streamed OpenAI Responses API (`responses.create(stream=True)`), which passes through unrecorded. See `examples/demo_async.py`.
+- Async clients (`AsyncAnthropic`, `AsyncOpenAI`) are intercepted too — replay's no-network guarantee covers both sync and async clients, including async streams. The one remaining hole is the streamed OpenAI Responses API (`responses.create(stream=True)`), which passes through unrecorded. See `examples/async_agents.py`.
 
-See `examples/demo_replay.py` for a full runnable walkthrough: record a golden run, replay it with the network disabled to prove zero live calls, then watch replay catch a prompt edit instantly.
+See `examples/replay.py` for a full runnable walkthrough: record a golden run, replay it with the network disabled to prove zero live calls, then watch replay catch a prompt edit instantly.
 
 ### Streaming agents
 
@@ -354,11 +354,11 @@ See `examples/demo_replay.py` for a full runnable walkthrough: record a golden r
 
 Replay rebuilds the recorded chunks into real SDK chunk/event objects and yields them back incrementally — the agent consumes them exactly like a live stream, with zero API calls. Replaying a streaming recording against a non-streaming request (or vice versa) raises `ReplayError` with a "shape mismatch" message.
 
-Not yet supported: the `client.messages.stream()` context-manager helper, and streamed OpenAI Responses-API calls. Mistral still forces `stream=False` on every call. See `examples/demo_async.py` for the async-client version of this walkthrough.
+Not yet supported: the `client.messages.stream()` context-manager helper, and streamed OpenAI Responses-API calls. Mistral still forces `stream=False` on every call. See `examples/async_agents.py` for the async-client version of this walkthrough.
 
 A stream that is never iterated and never closed is finalized automatically at recorder/asserter exit, but consuming or closing it promptly is still recommended so events appear in call order.
 
-See `examples/demo_streaming.py` for a full runnable walkthrough of recording and replaying a streaming agent.
+See `examples/streaming.py` for a full runnable walkthrough of recording and replaying a streaming agent.
 
 ---
 
@@ -383,7 +383,7 @@ Notes:
 - `structural_tolerance` applies to BOTH the executed-tool sequence and the model-requested tool sequence — relaxing it for flaky tool ordering also relaxes the model-tools check.
 - Scope today: non-streaming Anthropic and OpenAI calls, plus Groq/OpenRouter via inheritance.
 
-See `examples/demo_tool_use.py` for a full runnable walkthrough: record a golden run where the model requests `search`, re-run it unchanged, then watch agentsnap catch the model requesting `delete_file` instead.
+See `examples/model_tools.py` for a full runnable walkthrough: record a golden run where the model requests `search`, re-run it unchanged, then watch agentsnap catch the model requesting `delete_file` instead.
 
 ---
 

@@ -32,7 +32,7 @@ python -m agentsnap.cli update <test_name>
 # Run demos
 python examples/demo_mock.py                        # no API keys needed
 python examples/demo_mock.py --snapshot-dir /tmp/s  # custom snapshot dir
-python examples/demo_async.py                        # async client interception, no API keys needed
+python examples/async_agents.py                        # async client interception, no API keys needed
 python examples/demo_real.py                        # needs API keys in .env
 ```
 

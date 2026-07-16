@@ -35,8 +35,8 @@ Agents regress silently. A prompt tweak, a model swap, a tool wired to the wrong
 A prompt edit caught by replay mode, no API call required:
 
 ```
-Agent regression in 'demo_replay'
-=================================
+Agent regression in 'replay'
+============================
 
 [ARGS] llm_call[0].messages:
   messages: [{'content': 'Answer concisely: What is Python?', ...}] ->
@@ -177,7 +177,7 @@ Notes:
   replay's no-network guarantee covers both sync and async clients, including
   async streams. The one remaining hole is the streamed OpenAI Responses API
   (`responses.create(stream=True)`), which passes through unrecorded. See
-  `examples/demo_async.py`.
+  `examples/async_agents.py`.
 
 ### Streaming agents
 
@@ -194,8 +194,8 @@ call cannot replay as a non-streaming request (or vice versa) — that raises
 
 Not yet supported: the `client.messages.stream()` context-manager helper,
 and streamed OpenAI Responses-API calls. Mistral still forces `stream=False`
-on every call. See `examples/demo_streaming.py` for a full runnable
-walkthrough, and `examples/demo_async.py` for the async-client version.
+on every call. See `examples/streaming.py` for a full runnable
+walkthrough, and `examples/async_agents.py` for the async-client version.
 
 A stream that is never iterated and never closed is finalized automatically
 at recorder/asserter exit, but consuming or closing it promptly is still
@@ -237,7 +237,7 @@ Old goldens (recorded before this feature) never fail from the new surface.
 Scope today: non-streaming Anthropic and OpenAI calls, plus Groq/OpenRouter
 via inheritance. Streamed `tool_use` assembly is not captured yet.
 
-See `examples/demo_tool_use.py` for a full runnable walkthrough.
+See `examples/model_tools.py` for a full runnable walkthrough.
 
 ---
 

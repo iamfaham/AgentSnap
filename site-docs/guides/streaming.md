@@ -19,4 +19,4 @@ Not yet supported:
 
 Mistral still forces `stream=False` on every call.
 
-See `examples/demo_streaming.py` for a full runnable walkthrough of recording and replaying a streaming agent, and `examples/demo_async.py` for the async-client version.
+See `examples/streaming.py` for a full runnable walkthrough of recording and replaying a streaming agent, and `examples/async_agents.py` for the async-client version.

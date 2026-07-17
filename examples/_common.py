@@ -239,7 +239,7 @@ def maybe_load_dotenv() -> None:
     Mock mode never calls this (no network, no keys needed). Real mode calls
     it before `detect_real_client()` so a key committed to a local .env is
     picked up the same way `agentsnap.config.load()` does. Set
-    AGENTSNAP_SKIP_DOTENV=1 to opt out (matches the old demo_real.py convention).
+    AGENTSNAP_SKIP_DOTENV=1 to opt out.
     """
     if os.getenv("AGENTSNAP_SKIP_DOTENV"):
         return

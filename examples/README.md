@@ -54,3 +54,19 @@ poking at the recorded JSON by hand.
 | `tuning.py`       | Comparison tuning -- `semantic_threshold` (loose vs strict) on a paraphrase, and `structural_tolerance` absorbing a model tool-choice swap | LLM judge scoring a real paraphrase for equivalence (needs `OPENAI_API_KEY`/`OPENROUTER_API_KEY`; an Anthropic-only key skips just the judge segment) |
 | `cli_workflow.py` | The CLI approval loop -- `agentsnap status`/`update --all --yes` driven via subprocess exactly as a developer types them | Same loop against a real-recorded golden and a real drifted run |
 | `pytest_fixture.py` | The pytest plugin as users actually run it -- a mini test file run via `python -m pytest`, twice | A real call on the first pytest run, replayed (zero network) on the second via `pytest --agentsnap-replay` |
+| `providers.py`    | The non-core provider adapters -- Gemini, Cohere, Mistral, Groq, each doing the same record/pass/regression story. Gemini/Cohere/Mistral are live-mode only today (`mode="replay"` raises `ReplayError`); Groq subclasses `OpenAIAdapter` and gets replay/streaming for free | One tiny real call per provider key present (`GEMINI_API_KEY`/`GOOGLE_API_KEY`, `COHERE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`); providers without a key print a skip hint |
+| `run_all.py`      | The matrix runner -- runs every example above as its own subprocess and prints a PASS/FAIL/time table | Forwards `--real` to every example so the whole suite runs against real APIs in one command |
+
+## Validating a release against real APIs
+
+`run_all.py --real` is the one-command way to exercise every example against
+whatever real provider keys you have set (in `.env` or the shell). Providers
+without a key present skip gracefully rather than failing, so this degrades
+fine with a partial key set -- useful before cutting a release:
+
+```bash
+python examples/run_all.py --real
+```
+
+Costs real API usage (small, cheap calls -- see "Key setup" above), so it's
+never run in CI. Run it locally, or in a scratch environment, before shipping.

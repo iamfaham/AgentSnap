@@ -29,11 +29,10 @@ python -m agentsnap.cli list
 python -m agentsnap.cli diff __agent_snapshots__/<name>.json
 python -m agentsnap.cli update <test_name>
 
-# Run demos
-python examples/demo_mock.py                        # no API keys needed
-python examples/demo_mock.py --snapshot-dir /tmp/s  # custom snapshot dir
-python examples/async_agents.py                        # async client interception, no API keys needed
-python examples/demo_real.py                        # needs API keys in .env
+# Run examples (each has mock_demo(), no keys needed, and --real for a live LLM)
+python examples/quickstart.py                       # the golden record/pass/regress/approve flow
+python examples/providers.py                        # Gemini/Cohere/Mistral/Groq adapters
+python examples/run_all.py                          # matrix runner: every example, mock or --real
 ```
 
 ## Architecture
@@ -101,7 +100,7 @@ Every adapter checks `TraceAccumulator.current()`, forwards the real call, pushe
 1. Create `agentsnap/adapters/<provider>.py`
 2. Check `TraceAccumulator.current()`, force `stream=False` (or implement a recording tee if the SDK supports streaming), forward the call, push `{"type": "llm_call", "messages": [...], "response": str, "tokens": int}`
 3. Add optional dep to `pyproject.toml`
-4. Add mock client + demo function to `examples/demo_mock.py`
+4. Add a mock client + adapter story to `examples/providers.py` (the non-core-adapter example; `quickstart.py`/`replay.py`/etc. cover Anthropic/OpenAI)
 
 `adapters/groq.py` is the minimal example (one-liner subclass of `OpenAIAdapter`).
 

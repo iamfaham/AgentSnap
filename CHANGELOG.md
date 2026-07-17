@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `examples/demo_async.py`: a runnable walkthrough of recording an async agent, replaying it with zero live calls, and catching a prompt edit.
 - README/USAGE "Works with your framework" compatibility matrix.
 - Documentation site (MkDocs Material, deployed to GitHub Pages).
+- **Examples overhaul** — the grab-bag `demo_*.py` scripts were replaced with ten focused, consistently-structured examples (`quickstart`, `replay`, `streaming`, `model_tools`, `async_agents`, `scenarios`, `tuning`, `cli_workflow`, `pytest_fixture`, `providers`), each with a `mock_demo()` (offline, default) and a `real_demo()` (`--real`, skips gracefully without a key) sharing common plumbing in `examples/_common.py`; plus `examples/run_all.py`, a matrix runner that exercises every example (or an `--only` subset) in one command and is the one-command way to validate a release against real provider APIs.
 
 ### Fixed
 

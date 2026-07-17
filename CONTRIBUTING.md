@@ -59,7 +59,7 @@ Please run this before opening a PR — CI enforces it.
 
 2. Add the optional dependency to `pyproject.toml` under `[project.optional-dependencies]`.
 
-3. Add a mock client and a demo function to `examples/demo_mock.py` so the adapter is exercised without real API calls.
+3. Add a mock client and an adapter story to `examples/providers.py` so the adapter is exercised without real API calls (that's where Gemini/Cohere/Mistral/Groq already live).
 
 4. `agentsnap/adapters/groq.py` is the minimal example — a one-line subclass of `OpenAIAdapter` for OpenAI-compatible providers. Use it as a template when the new provider's SDK shares OpenAI's interface.
 

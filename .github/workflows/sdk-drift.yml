@@ -1,0 +1,30 @@
+name: sdk-drift
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 1 * *"
+
+jobs:
+  drift:
+    if: github.event_name == 'workflow_dispatch' || vars.RUN_SCHEDULED_LIVE_TESTS == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev,frameworks]"
+
+      - name: Force-install latest provider SDKs (ignore lock)
+        run: pip install -U anthropic openai langchain-openai langchain-anthropic pydantic-ai-slim openai-agents
+
+      - name: Print resolved SDK versions
+        run: pip freeze | grep -iE "^(anthropic|openai|langchain|pydantic-ai|openai-agents)"
+
+      - name: Hermetic test suite (no secrets, no real calls)
+        run: python -m pytest tests/ -q

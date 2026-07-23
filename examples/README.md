@@ -72,4 +72,13 @@ python examples/run_all.py --real
 ```
 
 Costs real API usage (small, cheap calls -- see "Key setup" above), so it's
-never run in CI. Run it locally, or in a scratch environment, before shipping.
+never run in CI on `push`/`pull_request`. Run it locally, or in a scratch
+environment, before shipping.
+
+## Validating against real APIs in CI
+
+`run_all.py --real` also runs in CI via the `live-validation` workflow
+(`.github/workflows/live-validation.yml`), manually or on a monthly schedule
+gated by the `RUN_SCHEDULED_LIVE_TESTS` repo variable. See "Dogfooding: live
+API validation" in `CONTRIBUTING.md` for how to trigger a manual run and how
+to arm/disarm the scheduled one.

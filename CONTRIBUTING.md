@@ -75,6 +75,36 @@ This repo uses [Conventional Commits](https://www.conventionalcommits.org/):
 
 Keep the subject line short and in the imperative mood (e.g. `fix: guard trailing newline in _write_env_key`).
 
+## Dogfooding: live API validation
+
+agentsnap validates itself against real provider APIs, not just mocks. Two GitHub Actions workflows do this in CI:
+
+- **`.github/workflows/live-validation.yml`** — runs `python examples/run_all.py --real` (the same command described in `examples/README.md`) against whichever provider secrets are configured. Absent secrets degrade gracefully: each example prints a skip hint for that provider and exits 0, so a partial (or empty) key set never fails the job.
+- **`.github/workflows/sdk-drift.yml`** — installs the latest, unpinned provider SDKs and runs the hermetic test suite (`python -m pytest tests/ -q`, no keys, no network) to catch upstream SDK changes that break our interception/reconstruction code, independent of live-API behavior.
+
+**Running it manually:** Actions tab → `live-validation` → *Run workflow*. Optionally set the `only` input to a comma-separated subset of example names (e.g. `quickstart,replay`) to forward to `run_all.py --only`; leave it blank to run every example. Manual dispatch always runs, regardless of the kill-switch below.
+
+**Arming/disarming the monthly scheduled runs:** both workflows also run on a monthly cron (`live-validation` at 06:00 UTC and `sdk-drift` at 07:00 UTC on the 1st), but the cron is a no-op unless a repo variable is set. Go to Settings → Secrets and variables → Actions → Variables and set `RUN_SCHEDULED_LIVE_TESTS` to `true` to arm the scheduled runs, or delete/unset it (or set anything other than `true`) to disarm them. This one variable gates both scheduled jobs.
+
+**Secrets to configure** (Settings → Secrets and variables → Actions → Secrets) — set only the ones you have; the rest cause that provider's examples to skip:
+
+| Secret | Used for |
+|--------|----------|
+| `ANTHROPIC_API_KEY` | Anthropic examples |
+| `OPENAI_API_KEY` | OpenAI examples |
+| `OPENROUTER_API_KEY` | OpenRouter-routed examples |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini provider example |
+| `COHERE_API_KEY` | Cohere provider example |
+| `MISTRAL_API_KEY` | Mistral provider example |
+| `GROQ_API_KEY` | Groq provider example |
+| `AGENTSNAP_JUDGE_API_KEY` | LLM-judge segment of `tuning.py` |
+
+Neither workflow blocks PR merges or the main `test`/`frameworks` CI jobs — both are manual/scheduled only, never on `push`/`pull_request`.
+
+### SDK drift job
+
+A red `sdk-drift` run means a provider SDK shipped a change that broke our interception or response-reconstruction code — this is informational, not a merge gate. To triage: compare the versions printed in the "Print resolved SDK versions" step against the pinned versions in `uv.lock`, then update the relevant adapter (`agentsnap/adapters/*.py`), patch (`agentsnap/patches.py`), or reconstruction (`extract_responses_text`/`reconstruct_response` in `agentsnap/adapters/openai.py`, etc.) code to match the new SDK shape.
+
 ## Release process
 
 1. Bump the version in `pyproject.toml`.

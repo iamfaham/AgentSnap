@@ -60,3 +60,18 @@ jobs:
 ## `pytest-xdist` limitation
 
 Every `snapshot.run()` / `record_agent()` / `assert_agent()` use feeds a terminal summary section ("agentsnap snapshots") printed at the end of the pytest run. **Known limitation:** under `pytest-xdist`, this summary is per-worker and is not aggregated across workers — run without `-n` if you need the full picture.
+
+---
+
+## Validating agentsnap itself against live APIs (maintainers)
+
+Everything above is what **your** CI needs. This section is about agentsnap's own repository CI, not something you need to replicate downstream.
+
+agentsnap dogfoods its own "replay on PRs, live nightly" story: two workflows in [`.github/workflows/`](https://github.com/iamfaham/AgentSnap/tree/main/.github/workflows) continuously exercise the project against live provider APIs and the latest, unpinned provider SDKs.
+
+- **`live-validation.yml`** — runs `python examples/run_all.py --real` against whichever provider secrets are configured in the repo. A missing secret degrades gracefully (that example prints a skip hint and exits 0) rather than failing the job.
+- **`sdk-drift.yml`** — installs the latest unpinned versions of every provider SDK (bypassing the lockfile) and runs the hermetic test suite, to catch upstream SDK changes that break agentsnap's interception/reconstruction code before a user hits them.
+
+Both are `workflow_dispatch` (manual, always runs) plus a monthly `schedule`, and the monthly runs are gated behind a single repo variable, `RUN_SCHEDULED_LIVE_TESTS` — unset (or anything but `'true'`) keeps the cron a no-op. Neither workflow can block a PR or the main test/frameworks jobs; both are informational only.
+
+See [CONTRIBUTING.md](https://github.com/iamfaham/AgentSnap/blob/main/CONTRIBUTING.md#dogfooding-live-api-validation) for the maintainer's guide to arming, running, and triaging these.

@@ -659,3 +659,5 @@ jobs:
 ```
 
 If `AGENTSNAP_JUDGE_API_KEY` is not set, agentsnap uses offline embedding comparison — provided you ran `agentsnap init` with option [2] (offline embeddings) and committed the resulting `pyproject.toml`. CI works without any secrets once that setup is done.
+
+**Note:** agentsnap also dogfoods itself — a monthly-gated `live-validation` workflow and an `sdk-drift` workflow in this repo continuously validate agentsnap against live provider APIs and the latest unpinned SDKs. That's maintainer-facing CI for this project, not something your own project needs to set up; see [CONTRIBUTING.md](https://github.com/iamfaham/AgentSnap/blob/main/CONTRIBUTING.md#dogfooding-live-api-validation) if you're curious.

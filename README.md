@@ -574,6 +574,10 @@ jobs:
 
 Snapshots are committed to the repo. CI only runs the asserter — no real agent API calls needed unless your tests explicitly make them.
 
+### Dogfooding / continuous real-API validation
+
+agentsnap validates itself against live provider APIs: a monthly-gated `live-validation` workflow runs `examples/run_all.py --real`, and an `sdk-drift` workflow checks the hermetic suite against the latest unpinned provider SDKs. Both are maintainer-facing and never gate a PR — see [CONTRIBUTING.md](CONTRIBUTING.md#dogfooding-live-api-validation) for how to arm/run them.
+
 ---
 
 ## How to approve an intentional regression

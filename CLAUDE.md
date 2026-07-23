@@ -129,3 +129,5 @@ Integration tests (`tests/integration/`) use `MockAnthropicClient` / `MockAnthro
 Key resolution is in `config._resolve_api_key()`. Add new entries to `_PROVIDER_KEY_MAP` in `config.py` to support additional providers.
 
 **Docs site** — source lives in `site-docs/` (repo `docs/` remains local-only, never committed); build with `mkdocs build --strict`; deployed by `.github/workflows/docs.yml`.
+
+**Dogfood CI** — `.github/workflows/live-validation.yml` (`examples/run_all.py --real`) and `.github/workflows/sdk-drift.yml` (hermetic suite against latest unpinned provider SDKs) run manually or monthly, gated by the `RUN_SCHEDULED_LIVE_TESTS` repo variable; see `CONTRIBUTING.md`.

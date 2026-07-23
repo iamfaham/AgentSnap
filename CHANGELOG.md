@@ -4,11 +4,26 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.4.0] - 2026-07-11
+## [0.5.0] - 2026-07-22
 
 ### Added
 
+- **Examples overhaul** — the grab-bag `demo_*.py` scripts were replaced with ten focused, consistently-structured examples (`quickstart`, `replay`, `streaming`, `model_tools`, `async_agents`, `scenarios`, `tuning`, `cli_workflow`, `pytest_fixture`, `providers`), each with a `mock_demo()` (offline, default) and a `real_demo()` (`--real`, skips gracefully without a key) sharing common plumbing in `examples/_common.py`; plus `examples/run_all.py`, a matrix runner that exercises every example (or an `--only` subset) in one command and is the one-command way to validate a release against real provider APIs.
+- **Record-once-then-replay real examples** — the `--real` path of each example now records once against the live API and replays that recording for the regression check, instead of comparing two independent live calls against each other (which flaked on natural model-response variance).
+- **Dogfood CI** — `.github/workflows/live-validation.yml` runs `examples/run_all.py --real` against whichever provider secrets are configured (manual `workflow_dispatch`, always; monthly `schedule`, gated), and `.github/workflows/sdk-drift.yml` installs the latest unpinned provider SDKs and runs the hermetic test suite to catch upstream SDK drift early. Both scheduled runs are controlled by a single repo variable, `RUN_SCHEDULED_LIVE_TESTS` — unset (or anything but `'true'`) keeps the monthly cron a no-op; manual dispatch always runs regardless. Neither workflow can block a PR or the main `test`/`frameworks` jobs.
+
+### Fixed
+
 - **Anthropic raw-response parity** — the Anthropic adapter now unwraps `with_raw_response`/`.parse()` calls and replays them through a `ReplayLegacyResponse` shim, mirroring the OpenAI fix; the unwrap/shim helpers were consolidated into a shared `agentsnap/adapters/_raw_response.py` used by both adapters. Verified against `langchain-anthropic`'s real `ChatAnthropic` client.
+- Clearer replay errors: a recorded chat-completion payload replayed through the Responses reconstructor (or vice versa) now names the mismatched API and hints at a call-order change; `ReplayLegacyResponse` raises a clearer `AttributeError` for HTTP metadata that was never recorded; the async recording-stream tees raise a `TypeError` pointing at `async for`/`async with` instead of silently misbehaving under sync iteration.
+- A passing report whose structural tolerance absorbed a `model_tools`/`model_tool_args` drift now surfaces `model_tools: changed (absorbed by tolerance)` on the PASSED line (asserter output and `agentsnap diff`), matching how absorbed structural changes are already surfaced.
+- Cross-tool argument diffs are labeled honestly: when the model swaps to a differently-named tool between runs, the diff key is `model_tool:{old}->{new}[{i}]` instead of implying a same-tool argument change.
+- `agentsnap status` now parses orphaned `.last_run/*.json` files (no matching golden) instead of listing them unconditionally; a corrupt orphan renders `unapproved new run (unreadable)` and counts toward the unreadable total (exit 1), same as other unreadable files. Corrupt orphan runs are also counted in the unreadable summary bucket.
+- pytester flag-matrix coverage plus a langchain Responses-API replay test were added to the suite; no user-facing behavior change.
+
+## [0.4.0] - 2026-07-11
+
+### Added
 
 - **Async client interception** — `PatchSet` now patches `AsyncMessages.create` (Anthropic) and `AsyncCompletions.create` (OpenAI) the same way it patches the sync classes: recording, stream teeing (`AsyncAnthropicRecordingStream` / `AsyncOpenAIRecordingStream`), and full replay (including async streams reconstructed as real SDK chunk objects). Replay's no-network guarantee now covers async clients, not just sync.
 - **OpenAI Responses API support** — non-streaming `responses.create()` / `AsyncResponses.create()` calls are recorded and replayed (`tool_requests`, `raw_response`, token counts included). Streamed Responses-API calls remain the one documented capture hole.
@@ -16,16 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `examples/demo_async.py`: a runnable walkthrough of recording an async agent, replaying it with zero live calls, and catching a prompt edit.
 - README/USAGE "Works with your framework" compatibility matrix.
 - Documentation site (MkDocs Material, deployed to GitHub Pages).
-- **Examples overhaul** — the grab-bag `demo_*.py` scripts were replaced with ten focused, consistently-structured examples (`quickstart`, `replay`, `streaming`, `model_tools`, `async_agents`, `scenarios`, `tuning`, `cli_workflow`, `pytest_fixture`, `providers`), each with a `mock_demo()` (offline, default) and a `real_demo()` (`--real`, skips gracefully without a key) sharing common plumbing in `examples/_common.py`; plus `examples/run_all.py`, a matrix runner that exercises every example (or an `--only` subset) in one command and is the one-command way to validate a release against real provider APIs.
 
 ### Fixed
 
 - LangChain's raw-response wrapper was recording empty responses; the OpenAI adapter now unwraps it before extracting text — including LangChain's Responses-API route (`use_responses_api=True`), which calls `responses.with_raw_response.create()` and previously bypassed the unwrap entirely.
 - Replaying a recorded call made through `with_raw_response` (chat or Responses API) now returns a `ReplayLegacyResponse` shim exposing `.parse()`, instead of a plain reconstructed object the caller's `.parse()`-based code couldn't use.
-- Clearer replay errors: a recorded chat-completion payload replayed through the Responses reconstructor (or vice versa) now names the mismatched API and hints at a call-order change; `ReplayLegacyResponse` raises a clearer `AttributeError` for HTTP metadata that was never recorded; the async recording-stream tees raise a `TypeError` pointing at `async for`/`async with` instead of silently misbehaving under sync iteration.
-- A passing report whose structural tolerance absorbed a `model_tools`/`model_tool_args` drift now surfaces `model_tools: changed (absorbed by tolerance)` on the PASSED line (asserter output and `agentsnap diff`), matching how absorbed structural changes are already surfaced.
-- Cross-tool argument diffs are labeled honestly: when the model swaps to a differently-named tool between runs, the diff key is `model_tool:{old}->{new}[{i}]` instead of implying a same-tool argument change.
-- `agentsnap status` now parses orphaned `.last_run/*.json` files (no matching golden) instead of listing them unconditionally; a corrupt orphan renders `unapproved new run (unreadable)` and counts toward the unreadable total (exit 1), same as other unreadable files.
 
 ## [0.3.0] - 2026-07-11
 

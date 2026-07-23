@@ -15,13 +15,20 @@ Usage:
                                                   # skip hint and exits 0 if none set)
     python examples/cli_workflow.py --keep      # keep the temp snapshot dir, print its path
 
-The journey (both mock_demo and real_demo):
+The journey (mock_demo):
   1. Record a golden, then simulate a drifted run -- the assert fails and
      agentsnap writes a failing `.last_run/*.json` next to the golden.
   2. `agentsnap status` -- shows the failing row, exits 1.
   3. `agentsnap update --all --yes` -- promotes the drifted run to golden.
   4. Re-run against the new baseline, then `agentsnap status` again -- shows
      a passing row, exits 0.
+
+real_demo follows the same recommended pattern as quickstart.py: ONE live
+call records the golden, then the "drifted run" is produced deterministically
+by asserting a deliberately different prompt in `mode="replay"` -- the
+request-side mismatch fails the assert and writes the failing `.last_run`
+entry without a second live API call. The rest of the CLI loop
+(status/update/status) is identical.
 """
 
 from __future__ import annotations
@@ -34,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common as ex
+from agentsnap import PatchSet
 from agentsnap.core.asserter import AgentAsserter
 from agentsnap.exceptions import AgentRegressionError
 
@@ -108,9 +116,12 @@ def real_demo(snapshot_dir: str) -> None:
         return
 
     ex.header(f"CLI_WORKFLOW (real)  --  provider: {detected.provider}, model: {detected.model}")
-    print("  Same loop, with a real-recorded golden and a real drifted run.\n")
+    print("  ONE live call records the golden; the 'drifted run' below is a deliberately")
+    print("  changed prompt caught via mode=\"replay\" -- deterministic, no second API call.\n")
 
     name = f"{NAME}_real"
+    query_v1 = "Summarize agentsnap in five words."
+    query_v2 = "Write a haiku about snapshot testing."  # the deliberate 'regression'
 
     def call(prompt: str) -> str:
         if detected.provider == "anthropic":
@@ -131,17 +142,21 @@ def real_demo(snapshot_dir: str) -> None:
             text = response.choices[0].message.content
         return f"Answer: {text}"
 
-    ex.subheader("Step 1  Record a golden, then a deliberately different prompt")
-    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
-        a.output = call("Summarize agentsnap in five words.")
-    print(f"  Golden recorded: {name}.json")
+    ex.subheader("Step 1  Record a golden (the only live call), then replay a different prompt")
+    with PatchSet():
+        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
+            a.output = call(query_v1)
+    print(f"  Golden recorded: {name}.json (with raw_response for replay)")
 
     try:
-        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
-            a.output = call("Write a haiku about snapshot testing.")
+        with PatchSet():
+            with AgentAsserter(
+                name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed
+            ) as a:
+                a.output = call(query_v2)
     except AgentRegressionError:
         pass
-    print("  Drifted run recorded a FAILING .last_run entry")
+    print("  Drifted run recorded a FAILING .last_run entry (no second API call)")
 
     ex.subheader(f"Step 2  $ agentsnap status --snapshot-dir {snapshot_dir}")
     result = _run_cli("status", f"--snapshot-dir={snapshot_dir}")
@@ -151,9 +166,12 @@ def real_demo(snapshot_dir: str) -> None:
     result = _run_cli("update", "--all", "--yes", f"--snapshot-dir={snapshot_dir}")
     _print_cli_output(result)
 
-    ex.subheader("Step 4  Re-run against the new baseline")
-    with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
-        a.output = call("Write a haiku about snapshot testing.")
+    ex.subheader("Step 4  Re-run against the new baseline -- replayed")
+    with PatchSet():
+        with AgentAsserter(
+            name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed
+        ) as a:
+            a.output = call(query_v2)
     print("  PASSED against the newly-approved golden.")
 
     ex.subheader(f"Step 5  $ agentsnap status --snapshot-dir {snapshot_dir}")

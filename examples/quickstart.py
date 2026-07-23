@@ -13,13 +13,21 @@ Usage:
                                                 # prints a skip hint and exits 0 if none set)
     python examples/quickstart.py --keep       # keep the temp snapshot dir, print its path
 
-The journey (both mock_demo and real_demo):
+The journey (mock_demo):
   1. First run  -- no snapshot yet, golden recorded automatically.
   2. Identical run -- passes with similarity scores.
   3. Regression -- the agent's output drifts; AgentAsserter raises
      AgentRegressionError with a full diff report.
   4. Approve -- promote the failing run to golden (what `agentsnap update` does).
   5. Re-run -- passes against the new baseline.
+
+real_demo follows agentsnap's recommended real-world pattern instead: make
+ONE live call to record the golden, then use `mode="replay"` for every
+"does it still pass" / "did it regress" check that follows. Replay is
+deterministic and free, so the identical-run and re-run checks never depend
+on a second live call happening to reproduce the model's wording -- exactly
+how real projects should wire this up (record live rarely, replay on every
+PR).
 """
 
 from __future__ import annotations
@@ -110,10 +118,13 @@ def real_demo(snapshot_dir: str) -> None:
         return
 
     ex.header(f"QUICKSTART (real)  --  provider: {detected.provider}, model: {detected.model}")
-    print("  Same journey, against a real LLM. The 'regression' is a deliberate prompt change.")
-    print("  Similarity is scored with a built-in lightweight comparator (no extra backend needed).\n")
+    print("  The recommended real-world pattern: ONE live call records the golden,")
+    print("  then every regression check below replays that recording instead of")
+    print("  calling the LLM again -- deterministic, zero flake, zero extra API cost.\n")
 
     name = f"{NAME}_real"
+    query_v1 = "Summarize agentsnap in five words."
+    query_v2 = "Write a haiku about snapshot testing."  # the deliberate 'regression'
 
     def call(query: str) -> str:
         if detected.provider == "anthropic":
@@ -134,22 +145,26 @@ def real_demo(snapshot_dir: str) -> None:
             text = response.choices[0].message.content
         return f"Answer: {text}"
 
-    ex.subheader("Step 1  First run -- no snapshot yet, golden recorded automatically")
+    ex.subheader("Step 1  First run -- the ONLY live call. Golden recorded automatically")
     with PatchSet():
         with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
-            a.output = call("Summarize agentsnap in five words.")
-    print(f"  Golden snapshot written: {name}.json")
+            a.output = call(query_v1)
+    print(f"  Golden snapshot written: {name}.json (with raw_response for replay)")
 
-    ex.subheader("Step 2  Identical run -- expect PASS")
+    ex.subheader("Step 2  Identical run -- replayed, expect PASS (no API call)")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
-            a.output = call("Summarize agentsnap in five words.")
+        with AgentAsserter(
+            name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed
+        ) as a:
+            a.output = call(query_v1)
 
-    ex.subheader("Step 3  Regression -- deliberately changed prompt")
+    ex.subheader("Step 3  Regression -- deliberately changed prompt, caught by replay")
     try:
         with PatchSet():
-            with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
-                a.output = call("Write a haiku about snapshot testing.")
+            with AgentAsserter(
+                name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed
+            ) as a:
+                a.output = call(query_v2)
     except AgentRegressionError as e:
         print(str(e))
 
@@ -161,10 +176,12 @@ def real_demo(snapshot_dir: str) -> None:
         print(f"  Approved -- .last_run/{name}.json promoted to golden.")
         print(f"  (In real use: agentsnap update {name})")
 
-    ex.subheader("Step 5  Re-run after approval -- expect PASS with the new baseline")
+    ex.subheader("Step 5  Re-run after approval -- replayed, expect PASS with the new baseline")
     with PatchSet():
-        with AgentAsserter(name, snapshot_dir=snapshot_dir, embed_fn=ex.demo_embed) as a:
-            a.output = call("Write a haiku about snapshot testing.")
+        with AgentAsserter(
+            name, snapshot_dir=snapshot_dir, mode="replay", embed_fn=ex.demo_embed
+        ) as a:
+            a.output = call(query_v2)
 
 
 def main() -> None:

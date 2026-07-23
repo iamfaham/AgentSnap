@@ -33,7 +33,10 @@ in your shell) and `--real` will pick it up automatically -- set
 built-in lightweight comparator in `_common.demo_embed()`, so a single
 provider key is all you need -- no judge, no downloaded model, no extra
 setup; real projects should run `agentsnap init` to configure a proper
-comparison backend instead.
+comparison backend instead. Most `--real` paths make exactly ONE live call
+to record a golden, then use `mode="replay"` for every regression check
+after that -- deterministic and free, and the same pattern real projects
+should use instead of asserting two live calls against each other.
 
 ## `--keep`
 
@@ -45,14 +48,14 @@ poking at the recorded JSON by hand.
 
 | File              | Feature                              | What `--real` does                                                        |
 |-------------------|---------------------------------------|----------------------------------------------------------------------------|
-| `quickstart.py`   | The golden flow (record/pass/regress/approve/re-pass) via zero-instrumentation `PatchSet` | Same journey against a real LLM (Anthropic, OpenAI, or OpenRouter); the "regression" is a deliberately changed prompt |
+| `quickstart.py`   | The golden flow (record/pass/regress/approve/re-pass) via zero-instrumentation `PatchSet` | One real call records the golden (Anthropic, OpenAI, or OpenRouter); every pass/regression/re-pass check after that runs in `mode="replay"` against a deliberately changed prompt -- deterministic, no second live call |
 | `replay.py`       | Replay mode (`mode="replay"`) -- deterministic, zero-network asserts, plus `replay_tools=True` to stub tool results too | Records once against the real API, then proves replay needs zero network afterwards (identical replay, a prompt-change catch, all against the real golden) |
 | `streaming.py`    | Streaming: teeing a `stream=True` call while recording, replaying recorded chunks, and finalizing an abandoned stream | A real streamed call with chunks printed as they arrive, then replayed with the network off |
 | `model_tools.py`  | Model tool-decision capture (`tool_requests`) -- catches the model requesting a different tool than the golden, even if your code's own tool call is unchanged | A real model given a trivial `get_weather` tool schema; the golden captures whatever it decides to call, then a replay-assert reproduces it with zero network |
 | `async_agents.py` | Async client interception -- `PatchSet` patches `AsyncAnthropic`/`AsyncOpenAI` exactly like their sync counterparts | A real async round trip (`asyncio.run`), then replayed with the network off |
 | `scenarios.py`    | Scenario namespacing -- explicit `scenario=` and input auto-hash give one `test_name` many independent goldens, plus the one-time input-binding warning | Two real inputs recorded as two scenario goldens, then listed |
 | `tuning.py`       | Comparison tuning -- `semantic_threshold` (loose vs strict) on a paraphrase, and `structural_tolerance` absorbing a model tool-choice swap | LLM judge scoring a real paraphrase for equivalence (needs `OPENAI_API_KEY`/`OPENROUTER_API_KEY`; an Anthropic-only key skips just the judge segment) |
-| `cli_workflow.py` | The CLI approval loop -- `agentsnap status`/`update --all --yes` driven via subprocess exactly as a developer types them | Same loop against a real-recorded golden and a real drifted run |
+| `cli_workflow.py` | The CLI approval loop -- `agentsnap status`/`update --all --yes` driven via subprocess exactly as a developer types them | One real call records the golden; the "drifted run" is a changed prompt caught via `mode="replay"` (no second live call), then the same status/update/status loop |
 | `pytest_fixture.py` | The pytest plugin as users actually run it -- a mini test file run via `python -m pytest`, twice | A real call on the first pytest run, replayed (zero network) on the second via `pytest --agentsnap-replay` |
 | `providers.py`    | The non-core provider adapters -- Gemini, Cohere, Mistral, Groq, each doing the same record/pass/regression story. Gemini/Cohere/Mistral are live-mode only today (`mode="replay"` raises `ReplayError`); Groq subclasses `OpenAIAdapter` and gets replay/streaming for free | One tiny real call per provider key present (`GEMINI_API_KEY`/`GOOGLE_API_KEY`, `COHERE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`); providers without a key print a skip hint |
 | `run_all.py`      | The matrix runner -- runs every example above as its own subprocess and prints a PASS/FAIL/time table | Forwards `--real` to every example so the whole suite runs against real APIs in one command |

@@ -509,6 +509,50 @@ def list_cmd(snapshot_dir: str) -> None:
             click.echo(f"  {p.stem}")
 
 
+def _parse_recorded_at(value: str):
+    """Parse an ISO recorded_at into a datetime, or None if unparseable."""
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _snapshot_content_matches(golden: dict, run_data: dict) -> bool:
+    """True if a last-run's output+trace equals the golden's (volatile fields ignored).
+
+    This is what `agentsnap update` produces (it copies the run into the golden),
+    so it distinguishes a genuinely-approved run from a fresh drifted run that
+    merely happens to share the golden's timestamp (coarse OS clocks can collide).
+    """
+    from agentsnap.core.normalize import DEFAULT_VOLATILE_FIELDS, normalize_trace
+
+    if golden.get("output") != run_data.get("output"):
+        return False
+    g = normalize_trace(golden.get("trace") or [], DEFAULT_VOLATILE_FIELDS)
+    r = normalize_trace(run_data.get("trace") or [], DEFAULT_VOLATILE_FIELDS)
+    return g == r
+
+
+def _run_is_approved(golden: dict, run_data: dict) -> bool:
+    """Whether a last-run is stale relative to its golden ('approved, re-run tests').
+
+    A run is approved when it is strictly older than the golden, or exactly as old
+    AND its content matches the golden (the post-`update` state). Requiring content
+    equality for the equal-timestamp case avoids misreading a fresh failing run as
+    approved when the OS clock is too coarse to separate the two writes.
+    """
+    golden_recorded = golden.get("recorded_at", "")
+    run_recorded = run_data.get("recorded_at", "")
+    gd, rd = _parse_recorded_at(golden_recorded), _parse_recorded_at(run_recorded)
+    if gd is not None and rd is not None:
+        older_or_equal, strictly_older = rd <= gd, rd < gd
+    else:  # unparseable timestamps: fall back to raw string comparison
+        older_or_equal, strictly_older = run_recorded <= golden_recorded, run_recorded < golden_recorded
+    return older_or_equal and (strictly_older or _snapshot_content_matches(golden, run_data))
+
+
 @cli.command("status")
 @click.option("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR, show_default=True)
 def status_cmd(snapshot_dir: str) -> None:
@@ -552,10 +596,7 @@ def status_cmd(snapshot_dir: str) -> None:
             any_unreadable = True
             continue
 
-        golden_recorded = golden.get("recorded_at", "")
-        run_recorded = run_data.get("recorded_at", "")
-
-        if run_recorded <= golden_recorded:
+        if _run_is_approved(golden, run_data):
             click.secho(f"  {name:<40} approved (re-run tests)", fg="white", dim=True)
             counts["approved"] = counts.get("approved", 0) + 1
             continue

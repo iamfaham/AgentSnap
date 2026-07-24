@@ -253,6 +253,40 @@ def test_status_exits_0_when_no_fail_present(tmp_path):
     assert result.exit_code == 0
 
 
+def test_status_equal_timestamp_failing_run_is_fail_not_approved(tmp_path):
+    """A fresh failing run sharing the golden's timestamp (coarse OS clock) must
+    show FAIL, not 'approved'. Regression for the Windows-CI cli_workflow failure:
+    equal timestamps + differing content = a real failing run, not a promotion."""
+    snap_dir = tmp_path
+    ts = "2026-01-01T00:00:00+00:00"
+    _write(snap_dir / "eq_agent.json", {**_SNAP, "output": "original", "recorded_at": ts})
+    _write(
+        snap_dir / ".last_run" / "eq_agent.json",
+        {**_SNAP, "output": "drifted", "recorded_at": ts,
+         "result": {"passed": False, "failed_checks": ["semantic:output"], "mode": "live"}},
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["status", f"--snapshot-dir={snap_dir}"])
+    assert result.exit_code == 1, result.output
+    assert "FAIL" in result.output and "approved" not in result.output
+
+
+def test_status_equal_timestamp_matching_content_is_approved(tmp_path):
+    """The post-`update` state: last-run content == golden, same timestamp -> approved."""
+    snap_dir = tmp_path
+    ts = "2026-01-01T00:00:00+00:00"
+    _write(snap_dir / "appr_agent.json", {**_SNAP, "output": "same", "recorded_at": ts})
+    _write(
+        snap_dir / ".last_run" / "appr_agent.json",
+        {**_SNAP, "output": "same", "recorded_at": ts,
+         "result": {"passed": False, "failed_checks": ["semantic:output"], "mode": "live"}},
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, ["status", f"--snapshot-dir={snap_dir}"])
+    assert result.exit_code == 0, result.output
+    assert "approved (re-run tests)" in result.output
+
+
 def test_status_handles_unreadable_json_gracefully(tmp_path):
     snap_dir = tmp_path
     bad = snap_dir / "corrupt_agent.json"

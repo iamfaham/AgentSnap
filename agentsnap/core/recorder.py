@@ -8,7 +8,7 @@ from agentsnap.core.snapshot import input_sha8, write_snapshot
 
 DEFAULT_SNAPSHOT_DIR = "__agent_snapshots__"
 
-_accumulator_var: ContextVar["TraceAccumulator | None"] = ContextVar(
+_accumulator_var: ContextVar[TraceAccumulator | None] = ContextVar(
     "_accumulator_var", default=None
 )
 
@@ -53,7 +53,7 @@ class TraceAccumulator:
             return list(self._trace)
 
     @staticmethod
-    def current() -> "TraceAccumulator | None":
+    def current() -> TraceAccumulator | None:
         return _accumulator_var.get()
 
 
@@ -101,7 +101,7 @@ class AgentRecorder:
             return input_sha8(self.input_data)
         return None
 
-    def __enter__(self) -> "AgentRecorder":
+    def __enter__(self) -> AgentRecorder:
         self._accumulator = TraceAccumulator(model=self.model)
         self._token = _accumulator_var.set(self._accumulator)
         return self
@@ -130,7 +130,7 @@ class AgentRecorder:
                 })
         return False
 
-    async def __aenter__(self) -> "AgentRecorder":
+    async def __aenter__(self) -> AgentRecorder:
         return self.__enter__()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:

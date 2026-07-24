@@ -40,7 +40,7 @@ all-providers = [
 ]
 dev = [
     "pytest-cov",
-    "ruff",
+    "ruff>=0.16,<0.17",
     "anthropic>=0.25",
     "langgraph",
     "deepdiff>=6.0",
@@ -89,3 +89,14 @@ llm_threshold      = 0.75   # intermediate LLM call responses
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# These three rules conflict with deliberate design choices in this library:
+ignore = [
+    "BLE001",  # blind `except Exception` is intentional — adapters and stream
+               # finalizers must degrade gracefully and never crash a user's agent
+    "S110",    # try/except/pass in TraceAccumulator.finalize_streams is a
+               # deliberate best-effort cleanup of already-abandoned streams
+    "PYI034",  # __enter__/__aenter__ return the concrete class rather than `Self`
+               # to avoid a typing_extensions dependency on Python 3.10
+]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from agentsnap.core.diff import DiffConfig, LLMJudge, compute_diff
 from agentsnap.core.recorder import DEFAULT_SNAPSHOT_DIR, TraceAccumulator, _accumulator_var
@@ -62,7 +63,7 @@ class AgentAsserter:
             return input_sha8(self.input)
         return None
 
-    def __enter__(self) -> "AgentAsserter":
+    def __enter__(self) -> AgentAsserter:
         if self.mode == "replay":
             try:
                 snap = read_snapshot(self.test_name, self.snapshot_dir, scenario=self.scenario)
@@ -212,7 +213,7 @@ class AgentAsserter:
         print(f"  [agentsnap] '{self.test_name}' PASSED | {summary}")
         return False
 
-    async def __aenter__(self) -> "AgentAsserter":
+    async def __aenter__(self) -> AgentAsserter:
         return self.__enter__()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:

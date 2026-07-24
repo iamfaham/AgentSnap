@@ -82,7 +82,7 @@ def _write_env_key(env_path: Path, key: str, value: str) -> None:
         new_lines = []
         updated = False
         for line in lines:
-            if line.startswith(f"{key}=") or line.startswith(f"{key} ="):
+            if line.startswith((f"{key}=", f"{key} =")):
                 new_lines.append(f"{key}={value}\n")
                 updated = True
             else:

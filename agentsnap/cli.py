@@ -24,7 +24,8 @@ def cli() -> None:
 def record_cmd(test_file: str, snapshot_dir: str) -> None:
     """Run a test file and record agent traces as snapshots."""
     result = subprocess.run(
-        [sys.executable, test_file, f"--snapshot-dir={snapshot_dir}", "--mode=record"]
+        [sys.executable, test_file, f"--snapshot-dir={snapshot_dir}", "--mode=record"],
+        check=False,
     )
     raise SystemExit(result.returncode)
 
@@ -35,7 +36,8 @@ def record_cmd(test_file: str, snapshot_dir: str) -> None:
 def run_cmd(test_file: str, snapshot_dir: str) -> None:
     """Run a test file and assert agent traces against snapshots."""
     result = subprocess.run(
-        [sys.executable, test_file, f"--snapshot-dir={snapshot_dir}", "--mode=assert"]
+        [sys.executable, test_file, f"--snapshot-dir={snapshot_dir}", "--mode=assert"],
+        check=False,
     )
     raise SystemExit(result.returncode)
 
@@ -169,10 +171,9 @@ def _print_update_diff(old: dict, new: dict) -> None:
 
 def _approve_pairs(pairs: list[tuple[Path, Path]], yes: bool) -> None:
     """Shared confirm + copy tail for the update command."""
-    if not yes:
-        if not click.confirm(f"\nApprove and update {len(pairs)} snapshot(s)?"):
-            click.echo("Aborted.")
-            raise SystemExit(1)
+    if not yes and not click.confirm(f"\nApprove and update {len(pairs)} snapshot(s)?"):
+        click.echo("Aborted.")
+        raise SystemExit(1)
 
     for src, dst in pairs:
         data = json.loads(src.read_text(encoding="utf-8"))
@@ -391,7 +392,9 @@ def init_cmd() -> None:
         installed_now = False
         if result.install_offline:
             click.echo('\nInstalling offline embeddings backend (pip install "agentsnap[offline]")...')
-            proc = subprocess.run([sys.executable, "-m", "pip", "install", "agentsnap[offline]"])
+            proc = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "agentsnap[offline]"], check=False
+            )
             if proc.returncode != 0:
                 click.echo(
                     "  Install failed. Run manually: pip install agentsnap[offline]"

@@ -81,7 +81,9 @@ def test_init_offline_installs_backend_when_requested(tmp_path):
                     catch_exceptions=False,
                 )
     assert result.exit_code == 0, result.output
-    mock_run.assert_called_once_with([sys.executable, "-m", "pip", "install", "agentsnap[offline]"])
+    mock_run.assert_called_once_with(
+        [sys.executable, "-m", "pip", "install", "agentsnap[offline]"], check=False
+    )
     assert "installed" in result.output.lower()
 
 

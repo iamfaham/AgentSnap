@@ -23,7 +23,7 @@ class AgentRegressionError(Exception):
     def __init__(
         self,
         test_name: str,
-        diff_report: "DiffReport",
+        diff_report: DiffReport,
         old_snapshot: dict,
         new_trace: list,
         new_output: str,

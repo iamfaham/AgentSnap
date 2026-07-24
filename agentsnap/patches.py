@@ -5,36 +5,79 @@ import warnings
 from agentsnap.adapters.anthropic import (
     AnthropicRecordingStream,
     AsyncAnthropicRecordingStream,
-    dump_raw as _anthropic_dump_raw,
-    extract_tool_requests as _anthropic_extract_tool_requests,
-    reconstruct_event as _anthropic_reconstruct_event,
-    replay_stream as _anthropic_replay_stream,
-    replay_stream_async as _anthropic_replay_stream_async,
-    unwrap_legacy_response as _anthropic_unwrap_legacy_response,
-    wants_raw_response as _anthropic_wants_raw_response,
-    ReplayLegacyResponse as _AnthropicReplayLegacyResponse,
+)
+from agentsnap.adapters.anthropic import (
     RawResponseStreamShim as _AnthropicRawResponseStreamShim,
+)
+from agentsnap.adapters.anthropic import (
+    ReplayLegacyResponse as _AnthropicReplayLegacyResponse,
+)
+from agentsnap.adapters.anthropic import (
+    dump_raw as _anthropic_dump_raw,
+)
+from agentsnap.adapters.anthropic import (
+    extract_tool_requests as _anthropic_extract_tool_requests,
+)
+from agentsnap.adapters.anthropic import (
+    reconstruct_event as _anthropic_reconstruct_event,
+)
+from agentsnap.adapters.anthropic import (
+    replay_stream as _anthropic_replay_stream,
+)
+from agentsnap.adapters.anthropic import (
+    replay_stream_async as _anthropic_replay_stream_async,
+)
+from agentsnap.adapters.anthropic import (
+    unwrap_legacy_response as _anthropic_unwrap_legacy_response,
+)
+from agentsnap.adapters.anthropic import (
+    wants_raw_response as _anthropic_wants_raw_response,
 )
 from agentsnap.adapters.openai import (
     AsyncOpenAIRecordingStream,
     OpenAIRecordingStream,
-    dump_raw as _openai_dump_raw,
-    extract_responses_text as _openai_extract_responses_text,
-    extract_responses_tool_requests as _openai_extract_responses_tool_requests,
-    extract_tool_requests as _openai_extract_tool_requests,
-    normalize_responses_input as _openai_normalize_responses_input,
-    reconstruct_event as _openai_reconstruct_event,
-    reconstruct_response_event as _openai_reconstruct_response_event,
-    replay_stream as _openai_replay_stream,
-    replay_stream_async as _openai_replay_stream_async,
-    unwrap_legacy_response as _openai_unwrap_legacy_response,
-    wants_raw_response as _openai_wants_raw_response,
-    ReplayLegacyResponse as _OpenAIReplayLegacyResponse,
+)
+from agentsnap.adapters.openai import (
     RawResponseStreamShim as _OpenAIRawResponseStreamShim,
+)
+from agentsnap.adapters.openai import (
+    ReplayLegacyResponse as _OpenAIReplayLegacyResponse,
+)
+from agentsnap.adapters.openai import (
+    dump_raw as _openai_dump_raw,
+)
+from agentsnap.adapters.openai import (
+    extract_responses_text as _openai_extract_responses_text,
+)
+from agentsnap.adapters.openai import (
+    extract_responses_tool_requests as _openai_extract_responses_tool_requests,
+)
+from agentsnap.adapters.openai import (
+    extract_tool_requests as _openai_extract_tool_requests,
+)
+from agentsnap.adapters.openai import (
+    normalize_responses_input as _openai_normalize_responses_input,
+)
+from agentsnap.adapters.openai import (
+    reconstruct_event as _openai_reconstruct_event,
+)
+from agentsnap.adapters.openai import (
+    reconstruct_response_event as _openai_reconstruct_response_event,
+)
+from agentsnap.adapters.openai import (
+    replay_stream as _openai_replay_stream,
+)
+from agentsnap.adapters.openai import (
+    replay_stream_async as _openai_replay_stream_async,
+)
+from agentsnap.adapters.openai import (
+    unwrap_legacy_response as _openai_unwrap_legacy_response,
+)
+from agentsnap.adapters.openai import (
+    wants_raw_response as _openai_wants_raw_response,
 )
 from agentsnap.core.recorder import TraceAccumulator
 from agentsnap.exceptions import ReplayError
-
 
 # ── Safe apply helper ──────────────────────────────────────────────────────────
 

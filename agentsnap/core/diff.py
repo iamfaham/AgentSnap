@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from agentsnap.core.normalize import DEFAULT_VOLATILE_FIELDS, normalize_trace
 
@@ -54,8 +55,8 @@ def _get_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
                 "Run 'agentsnap init' and choose option [2] to download it."
             )
 
-        from sentence_transformers import SentenceTransformer
         import transformers.utils.logging as _hf_log
+        from sentence_transformers import SentenceTransformer
         _was_enabled = _hf_log.is_progress_bar_enabled()
         _hf_log.disable_progress_bar()
         try:
@@ -211,7 +212,7 @@ class LLMJudge:
         return dict(self._reasons)
 
     @classmethod
-    def from_env(cls) -> "LLMJudge | None":
+    def from_env(cls) -> LLMJudge | None:
         """Return a configured LLMJudge if AGENTSNAP_JUDGE_API_KEY is set, else None.
 
         Reads model and base_url from env vars or [tool.agentsnap] in pyproject.toml.
@@ -247,7 +248,7 @@ class DiffConfig:
     structural_tolerance: int = 0
     structural_threshold: float = 0.8  # judge threshold for structural check only
     ignored_fields: list[str] = field(default_factory=list)
-    judge: "LLMJudge | None" = None
+    judge: LLMJudge | None = None
     compare_llm_requests: bool = False  # replay mode: diff request messages
 
     def _resolved_llm_threshold(self) -> float:

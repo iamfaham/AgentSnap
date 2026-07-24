@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-07-23
+
+### Fixed
+
+- `agentsnap status` no longer misreports a fresh failing run as `approved` when
+  the OS clock is too coarse to separate the golden and last-run writes (Windows
+  ~15ms resolution). It now parses `recorded_at` as a datetime and, for an
+  equal-timestamp run, decides by whether the run's content matches the golden
+  (the post-`update` state) rather than by string timestamp comparison.
+
+### Changed
+
+- Pinned `ruff>=0.16,<0.17` in the `dev` extra and made three intentional patterns
+  explicit in `[tool.ruff.lint]` (defensive blind-`except`, best-effort stream
+  cleanup, `__enter__` returning the concrete class) so the lint ruleset can't
+  silently drift and break CI. No runtime behavior change.
+
 ## [0.5.0] - 2026-07-22
 
 ### Added

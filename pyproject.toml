@@ -1,6 +1,6 @@
 [project]
 name = "agentsnap"
-version = "0.5.0"
+version = "0.5.1"
 description = "Deterministic snapshot testing harness for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"

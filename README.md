@@ -8,6 +8,8 @@
 
 Deterministic snapshot testing for AI agents.
 
+![agentsnap catching a prompt change in replay mode](assets/demo.gif)
+
 Full documentation, including guides and API reference, lives at **[iamfaham.github.io/AgentSnap](https://iamfaham.github.io/AgentSnap/)**.
 
 `agentsnap` records your agent's LLM and tool calls during a **golden run** and produces a committed snapshot file. On every subsequent run it replays the same inputs and compares the new trace against the snapshot across four dimensions:
